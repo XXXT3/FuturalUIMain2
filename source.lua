@@ -1,1840 +1,318 @@
 --[[
-    FuturaUI Library
-    A futuristic and responsive UI library for Roblox
+    LunarUI Library
+    A modern, sleek UI library for Roblox
+    Inspired by Rayfield and other popular libraries
     
     Features:
-    - Split layout design (sections on left, content on right)
-    - Responsive for both PC and mobile
-    - Optional key system
-    - Smooth animations and modern design
-    - Easy to use API
+    - Clean, modern design
+    - Customizable themes
+    - Smooth animations
+    - Multiple element types (buttons, toggles, sliders, dropdowns, etc.)
+    - Notifications system
+    - Key system for verification
+    - Simple and intuitive API
 ]]
 
+-- Services
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
-local HttpService = game:GetService("HttpService")
 local TextService = game:GetService("TextService")
+local HttpService = game:GetService("HttpService")
 
-local Player = Players.LocalPlayer
-local Mouse = Player:GetMouse()
+-- Variables that will be initialized later
+local LocalPlayer
+local Mouse
+local UIParent
 
-local FuturaUI = {}
-FuturaUI.__index = FuturaUI
-
--- Constants
-local TWEEN_SPEED = 0.25
-local CORNER_RADIUS = UDim.new(0, 8) -- Slightly more rounded corners
-local SHADOW_TRANSPARENCY = 0.7
-local ACCENT_COLOR = Color3.fromRGB(0, 170, 255) -- Bright cyber blue
-local BACKGROUND_COLOR = Color3.fromRGB(10, 15, 25) -- Darker background
-local SECTION_COLOR = Color3.fromRGB(20, 25, 35) -- Darker sections
-local TEXT_COLOR = Color3.fromRGB(255, 255, 255) -- Pure white text
-local SUBTEXT_COLOR = Color3.fromRGB(200, 220, 255) -- Light blue tint for subtitles
-local ELEMENT_COLOR = Color3.fromRGB(30, 35, 45) -- Slightly darker elements
-local HOVER_COLOR_LIGHT = Color3.fromRGB(40, 120, 200) -- Blue highlight
-local HOVER_COLOR_DARK = Color3.fromRGB(0, 100, 180) -- Darker blue for pressed
+-- Safe services retrieval
+local function safeGetService(serviceName)
+    local success, service = pcall(function()
+        return game:GetService(serviceName)
+    end)
+    
+    if success then
+        return service
+    else
+        warn("LunarUI: Failed to get service", serviceName)
+        return nil
+    end
+end
 
 -- Utility Functions
-local function MakeDraggable(frame, handle)
-    local dragToggle = nil
-    local dragInput = nil
-    local dragStart = nil
-    local startPos = nil
+local Utility = {}
 
-    local function UpdateInput(input)
-        local delta = input.Position - dragStart
-        local newPosition = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        
-        local tweenInfo = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-        TweenService:Create(frame, tweenInfo, {Position = newPosition}):Play()
-    end
-
-    handle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragToggle = true
-            dragStart = input.Position
-            startPos = frame.Position
-            
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragToggle = false
-                end
-            end)
-        end
-    end)
-
-    handle.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            dragInput = input
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragToggle then
-            UpdateInput(input)
-        end
-    end)
-end
-
-local function CreateShadow(instance, transparency)
-    local shadow = Instance.new("ImageLabel")
-    shadow.Name = "Shadow"
-    shadow.AnchorPoint = Vector2.new(0.5, 0.5)
-    shadow.BackgroundTransparency = 1
-    shadow.Position = UDim2.new(0.5, 0, 0.5, 0)
-    shadow.Size = UDim2.new(1, 24, 1, 24)
-    shadow.ZIndex = instance.ZIndex - 1
-    shadow.Image = "rbxassetid://6014261993"
-    shadow.ImageColor3 = Color3.fromRGB(0, 80, 150) -- Blue tinted shadow for cyber effect
-    shadow.ImageTransparency = transparency or SHADOW_TRANSPARENCY
-    shadow.ScaleType = Enum.ScaleType.Slice
-    shadow.SliceCenter = Rect.new(49, 49, 450, 450)
-    shadow.Parent = instance
+function Utility:Create(instanceType, properties, children)
+    local instance = Instance.new(instanceType)
     
-    -- Add a glow effect for cybernetic feel
-    local glow = Instance.new("ImageLabel")
-    glow.Name = "CyberGlow"
-    glow.AnchorPoint = Vector2.new(0.5, 0.5)
-    glow.BackgroundTransparency = 1
-    glow.Position = UDim2.new(0.5, 0, 0.5, 0)
-    glow.Size = UDim2.new(1, 10, 1, 10)
-    glow.ZIndex = instance.ZIndex - 2
-    glow.Image = "rbxassetid://6014261993"
-    glow.ImageColor3 = ACCENT_COLOR
-    glow.ImageTransparency = 0.85
-    glow.ScaleType = Enum.ScaleType.Slice
-    glow.SliceCenter = Rect.new(49, 49, 450, 450)
-    glow.Parent = instance
-    
-    -- Create a subtle pulsing effect
-    spawn(function()
-        while glow and glow.Parent do
-            local tweenInfo = TweenInfo.new(3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
-            local tween = TweenService:Create(glow, tweenInfo, {ImageTransparency = 0.7})
-            tween:Play()
-            wait(6)
-        end
-    end)
-    
-    return shadow
-end
-
-local function CreateRoundCorner(parent, radius)
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = radius or CORNER_RADIUS
-    corner.Parent = parent
-    return corner
-end
-
-local function CreateStroke(parent, color, thickness, transparency)
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = color or ACCENT_COLOR
-    stroke.Thickness = thickness or 1
-    stroke.Transparency = transparency or 0
-    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    stroke.Parent = parent
-    
-    -- Add cyber line effect (optional decorative element)
-    if parent:IsA("Frame") or parent:IsA("TextButton") then
-        local cyberLine = Instance.new("Frame")
-        cyberLine.Name = "CyberLine"
-        cyberLine.BackgroundColor3 = color or ACCENT_COLOR
-        cyberLine.BackgroundTransparency = 0.3
-        cyberLine.BorderSizePixel = 0
-        cyberLine.Size = UDim2.new(0.7, 0, 0, 1)
-        cyberLine.Position = UDim2.new(0.15, 0, 1, -2)
-        cyberLine.Parent = parent
-        
-        -- Create a subtle pulsing animation for the line
-        spawn(function()
-            while cyberLine and cyberLine.Parent do
-                local tweenInfo = TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
-                local tween = TweenService:Create(cyberLine, tweenInfo, {BackgroundTransparency = 0.7})
-                tween:Play()
-                wait(3)
-            end
-        end)
+    for property, value in pairs(properties or {}) do
+        instance[property] = value
     end
     
-    return stroke
-end
-
-local function CalculateTextSize(text, font, size, maxWidth)
-    return TextService:GetTextSize(text, size, font, Vector2.new(maxWidth or math.huge, math.huge))
-end
-
-local function IsUsingMobile()
-    return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled and not UserInputService.MouseEnabled
-end
-
--- Library Component Creation Methods
-function FuturaUI.new(title, keyRequired)
-    local self = setmetatable({}, FuturaUI)
-    
-    -- State variables
-    self.title = title or "FuturaUI"
-    self.key = keyRequired
-    self.keyVerified = not keyRequired
-    self.sections = {}
-    self.currentSection = nil
-    self.isMobile = IsUsingMobile()
-    self.toggled = true
-    self.uiCreated = false
-    self.elements = {}
-    
-    -- Create the UI when needed
-    if not self.keyVerified then
-        self:CreateKeySystem()
-    else
-        self:CreateUI()
+    for _, child in ipairs(children or {}) do
+        child.Parent = instance
     end
     
-    return self
+    return instance
 end
 
-function FuturaUI:CreateUI()
-    if self.uiCreated then return end
+function Utility:Tween(instance, properties, duration, easingStyle, easingDirection)
+    local tween = TweenService:Create(
+        instance,
+        TweenInfo.new(duration or 0.3, easingStyle or Enum.EasingStyle.Quad, easingDirection or Enum.EasingDirection.Out),
+        properties
+    )
     
-    -- Create the main GUI container
-    self.gui = Instance.new("ScreenGui")
-    self.gui.Name = "FuturaUI_" .. HttpService:GenerateGUID(false):sub(1, 8)
-    self.gui.ResetOnSpawn = false
-    self.gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    
-    -- Determine where to parent the GUI
-    if RunService:IsStudio() then
-        self.gui.Parent = Player:WaitForChild("PlayerGui")
-    else
-        pcall(function() 
-            self.gui.Parent = CoreGui
-        end)
-        if not self.gui.Parent then
-            self.gui.Parent = Player:WaitForChild("PlayerGui")
-        end
-    end
-    
-    -- Create the main frame
-    self.mainFrame = Instance.new("Frame")
-    self.mainFrame.Name = "MainFrame"
-    self.mainFrame.BackgroundColor3 = BACKGROUND_COLOR
-    self.mainFrame.Size = UDim2.new(0, 650, 0, 400)
-    self.mainFrame.Position = UDim2.new(0.5, -325, 0.5, -200)
-    self.mainFrame.Parent = self.gui
-    CreateRoundCorner(self.mainFrame)
-    CreateShadow(self.mainFrame, 0.5)
-    
-    -- Create title bar
-    self.titleBar = Instance.new("Frame")
-    self.titleBar.Name = "TitleBar"
-    self.titleBar.BackgroundColor3 = SECTION_COLOR
-    self.titleBar.Size = UDim2.new(1, 0, 0, 40)
-    self.titleBar.Parent = self.mainFrame
-    CreateRoundCorner(self.titleBar)
-    
-    local titleCornerFix = Instance.new("Frame")
-    titleCornerFix.Name = "CornerFix"
-    titleCornerFix.BackgroundColor3 = SECTION_COLOR
-    titleCornerFix.BorderSizePixel = 0
-    titleCornerFix.Size = UDim2.new(1, 0, 0, 20)
-    titleCornerFix.Position = UDim2.new(0, 0, 0.5, 0)
-    titleCornerFix.Parent = self.titleBar
-    
-    -- Create title text
-    self.titleText = Instance.new("TextLabel")
-    self.titleText.Name = "TitleText"
-    self.titleText.BackgroundTransparency = 1
-    self.titleText.Position = UDim2.new(0, 15, 0, 0)
-    self.titleText.Size = UDim2.new(1, -110, 1, 0)
-    self.titleText.Font = Enum.Font.GothamBold
-    self.titleText.Text = self.title
-    self.titleText.TextColor3 = TEXT_COLOR
-    self.titleText.TextSize = 18
-    self.titleText.TextXAlignment = Enum.TextXAlignment.Left
-    self.titleText.Parent = self.titleBar
-    
-    -- Create close button
-    self.closeButton = Instance.new("TextButton")
-    self.closeButton.Name = "CloseButton"
-    self.closeButton.BackgroundTransparency = 1
-    self.closeButton.Position = UDim2.new(1, -40, 0, 0)
-    self.closeButton.Size = UDim2.new(0, 40, 1, 0)
-    self.closeButton.Font = Enum.Font.GothamBold
-    self.closeButton.Text = "×"
-    self.closeButton.TextColor3 = TEXT_COLOR
-    self.closeButton.TextSize = 24
-    self.closeButton.Parent = self.titleBar
-    
-    self.closeButton.MouseEnter:Connect(function()
-        TweenService:Create(self.closeButton, TweenInfo.new(0.2), {TextColor3 = Color3.fromRGB(255, 100, 100)}):Play()
-    end)
-    
-    self.closeButton.MouseLeave:Connect(function()
-        TweenService:Create(self.closeButton, TweenInfo.new(0.2), {TextColor3 = TEXT_COLOR}):Play()
-    end)
-    
-    self.closeButton.MouseButton1Click:Connect(function()
-        self:Destroy()
-    end)
-    
-    -- Create minimize button
-    self.minimizeButton = Instance.new("TextButton")
-    self.minimizeButton.Name = "MinimizeButton"
-    self.minimizeButton.BackgroundTransparency = 1
-    self.minimizeButton.Position = UDim2.new(1, -80, 0, 0)
-    self.minimizeButton.Size = UDim2.new(0, 40, 1, 0)
-    self.minimizeButton.Font = Enum.Font.GothamBold
-    self.minimizeButton.Text = "-"
-    self.minimizeButton.TextColor3 = TEXT_COLOR
-    self.minimizeButton.TextSize = 24
-    self.minimizeButton.Parent = self.titleBar
-    
-    self.minimizeButton.MouseEnter:Connect(function()
-        TweenService:Create(self.minimizeButton, TweenInfo.new(0.2), {TextColor3 = ACCENT_COLOR}):Play()
-    end)
-    
-    self.minimizeButton.MouseLeave:Connect(function()
-        TweenService:Create(self.minimizeButton, TweenInfo.new(0.2), {TextColor3 = TEXT_COLOR}):Play()
-    end)
-    
-    self.minimizeButton.MouseButton1Click:Connect(function()
-        self:Toggle()
-    end)
-    
-    -- Create content container
-    self.contentContainer = Instance.new("Frame")
-    self.contentContainer.Name = "ContentContainer"
-    self.contentContainer.BackgroundTransparency = 1
-    self.contentContainer.Position = UDim2.new(0, 0, 0, 40)
-    self.contentContainer.Size = UDim2.new(1, 0, 1, -40)
-    self.contentContainer.Parent = self.mainFrame
-    
-    -- Create sections frame (left side)
-    self.sectionsFrame = Instance.new("Frame")
-    self.sectionsFrame.Name = "SectionsFrame"
-    self.sectionsFrame.BackgroundColor3 = SECTION_COLOR
-    self.sectionsFrame.Size = UDim2.new(0.25, 0, 1, 0)
-    self.sectionsFrame.Parent = self.contentContainer
-    CreateRoundCorner(self.sectionsFrame, UDim.new(0, 6))
-    
-    -- Fix left section corner
-    local sectionCornerFix = Instance.new("Frame")
-    sectionCornerFix.Name = "CornerFix"
-    sectionCornerFix.BackgroundColor3 = SECTION_COLOR
-    sectionCornerFix.BorderSizePixel = 0
-    sectionCornerFix.Size = UDim2.new(0.5, 0, 0.05, 0)
-    sectionCornerFix.Position = UDim2.new(0.5, 0, 0, 0)
-    sectionCornerFix.Parent = self.sectionsFrame
-    
-    -- Create sections scroll frame
-    self.sectionsScroll = Instance.new("ScrollingFrame")
-    self.sectionsScroll.Name = "SectionsScroll"
-    self.sectionsScroll.BackgroundTransparency = 1
-    self.sectionsScroll.Position = UDim2.new(0, 0, 0, 10)
-    self.sectionsScroll.Size = UDim2.new(1, 0, 1, -10)
-    self.sectionsScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-    self.sectionsScroll.ScrollBarThickness = 2
-    self.sectionsScroll.ScrollBarImageColor3 = ACCENT_COLOR
-    self.sectionsScroll.VerticalScrollBarPosition = Enum.VerticalScrollBarPosition.Left
-    self.sectionsScroll.BorderSizePixel = 0
-    self.sectionsScroll.Parent = self.sectionsFrame
-    
-    -- Create section list layout
-    self.sectionsList = Instance.new("UIListLayout")
-    self.sectionsList.Name = "SectionsList"
-    self.sectionsList.Padding = UDim.new(0, 5)
-    self.sectionsList.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    self.sectionsList.SortOrder = Enum.SortOrder.LayoutOrder
-    self.sectionsList.Parent = self.sectionsScroll
-    
-    -- Create sections padding
-    self.sectionsPadding = Instance.new("UIPadding")
-    self.sectionsPadding.Name = "SectionsPadding"
-    self.sectionsPadding.PaddingLeft = UDim.new(0, 10)
-    self.sectionsPadding.PaddingRight = UDim.new(0, 10)
-    self.sectionsPadding.PaddingTop = UDim.new(0, 10)
-    self.sectionsPadding.PaddingBottom = UDim.new(0, 10)
-    self.sectionsPadding.Parent = self.sectionsScroll
-    
-    -- Create content frame (right side)
-    self.contentFrame = Instance.new("Frame")
-    self.contentFrame.Name = "ContentFrame"
-    self.contentFrame.BackgroundColor3 = BACKGROUND_COLOR
-    self.contentFrame.Size = UDim2.new(0.75, 0, 1, 0)
-    self.contentFrame.Position = UDim2.new(0.25, 0, 0, 0)
-    self.contentFrame.Parent = self.contentContainer
-    
-    -- Create content scroll frame
-    self.contentScroll = Instance.new("ScrollingFrame")
-    self.contentScroll.Name = "ContentScroll"
-    self.contentScroll.BackgroundTransparency = 1
-    self.contentScroll.Position = UDim2.new(0, 10, 0, 10)
-    self.contentScroll.Size = UDim2.new(1, -20, 1, -20)
-    self.contentScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-    self.contentScroll.ScrollBarThickness = 3
-    self.contentScroll.ScrollBarImageColor3 = ACCENT_COLOR
-    self.contentScroll.BorderSizePixel = 0
-    self.contentScroll.Parent = self.contentFrame
-    
-    -- Create content list layout
-    self.contentList = Instance.new("UIListLayout")
-    self.contentList.Name = "ContentList"
-    self.contentList.Padding = UDim.new(0, 8)
-    self.contentList.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    self.contentList.SortOrder = Enum.SortOrder.LayoutOrder
-    self.contentList.Parent = self.contentScroll
-    
-    -- Create content padding
-    self.contentPadding = Instance.new("UIPadding")
-    self.contentPadding.Name = "ContentPadding"
-    self.contentPadding.PaddingLeft = UDim.new(0, 10)
-    self.contentPadding.PaddingRight = UDim.new(0, 10)
-    self.contentPadding.PaddingTop = UDim.new(0, 10)
-    self.contentPadding.PaddingBottom = UDim.new(0, 10)
-    self.contentPadding.Parent = self.contentScroll
-    
-    -- Create mobile toggle button if on mobile
-    if self.isMobile then
-        self:CreateMobileToggle()
-    end
-    
-    -- Make the UI draggable
-    MakeDraggable(self.mainFrame, self.titleBar)
-    
-    -- Update UI elements
-    self.contentList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        self.contentScroll.CanvasSize = UDim2.new(0, 0, 0, self.contentList.AbsoluteContentSize.Y + 20)
-    end)
-    
-    self.sectionsList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        self.sectionsScroll.CanvasSize = UDim2.new(0, 0, 0, self.sectionsList.AbsoluteContentSize.Y + 20)
-    end)
-    
-    self.uiCreated = true
+    tween:Play()
+    return tween
 end
 
-function FuturaUI:CreateMobileToggle()
-    -- Create a toggle button for mobile users
-    self.mobileToggle = Instance.new("ImageButton")
-    self.mobileToggle.Name = "MobileToggle"
-    self.mobileToggle.BackgroundColor3 = ACCENT_COLOR
-    self.mobileToggle.Size = UDim2.new(0, 50, 0, 50)
-    self.mobileToggle.Position = UDim2.new(0, 10, 0, 10)
-    self.mobileToggle.AnchorPoint = Vector2.new(0, 0)
-    self.mobileToggle.Image = "rbxassetid://7059346373" -- Menu icon
-    self.mobileToggle.ImageColor3 = TEXT_COLOR
-    self.mobileToggle.Parent = self.gui
-    CreateRoundCorner(self.mobileToggle, UDim.new(1, 0))
-    CreateShadow(self.mobileToggle)
+function Utility:GetTextSize(text, fontSize, font, frameSize)
+    return TextService:GetTextSize(text, fontSize, font, frameSize)
+end
+
+function Utility:DarkenColor(color, amount)
+    return Color3.new(
+        math.clamp(color.R - amount, 0, 1),
+        math.clamp(color.G - amount, 0, 1),
+        math.clamp(color.B - amount, 0, 1)
+    )
+end
+
+function Utility:LightenColor(color, amount)
+    return Color3.new(
+        math.clamp(color.R + amount, 0, 1),
+        math.clamp(color.G + amount, 0, 1),
+        math.clamp(color.B + amount, 0, 1)
+    )
+end
+
+function Utility:Ripple(instance, rippleColor)
+    local ripple = Utility:Create("Frame", {
+        Name = "Ripple",
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = rippleColor or Color3.fromRGB(255, 255, 255),
+        BackgroundTransparency = 0.7,
+        Position = UDim2.fromOffset(Mouse.X - instance.AbsolutePosition.X, Mouse.Y - instance.AbsolutePosition.Y),
+        Size = UDim2.fromScale(0, 0),
+        Parent = instance,
+        BorderSizePixel = 0,
+        ZIndex = instance.ZIndex + 1
+    })
     
-    self.mobileToggle.MouseButton1Click:Connect(function()
-        self:Toggle()
+    Utility:Create("UICorner", {
+        CornerRadius = UDim.new(1, 0),
+        Parent = ripple
+    })
+    
+    local maxSize = math.max(instance.AbsoluteSize.X, instance.AbsoluteSize.Y) * 2
+    
+    Utility:Tween(ripple, {
+        BackgroundTransparency = 1,
+        Size = UDim2.fromOffset(maxSize, maxSize)
+    }, 0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    
+    task.delay(0.5, function()
+        ripple:Destroy()
     end)
 end
 
-function FuturaUI:CreateKeySystem()
-    -- Create the key system UI
-    self.keyGui = Instance.new("ScreenGui")
-    self.keyGui.Name = "FuturaUI_KeySystem"
-    self.keyGui.ResetOnSpawn = false
-    self.keyGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    
-    -- Determine where to parent the GUI
-    if RunService:IsStudio() then
-        self.keyGui.Parent = Player:WaitForChild("PlayerGui")
-    else
-        pcall(function() 
-            self.keyGui.Parent = CoreGui
-        end)
-        if not self.keyGui.Parent then
-            self.keyGui.Parent = Player:WaitForChild("PlayerGui")
-        end
-    end
-    
-    -- Create the key frame
-    self.keyFrame = Instance.new("Frame")
-    self.keyFrame.Name = "KeyFrame"
-    self.keyFrame.BackgroundColor3 = BACKGROUND_COLOR
-    self.keyFrame.Size = UDim2.new(0, 350, 0, 200)
-    self.keyFrame.Position = UDim2.new(0.5, -175, 0.5, -100)
-    self.keyFrame.Parent = self.keyGui
-    CreateRoundCorner(self.keyFrame)
-    CreateShadow(self.keyFrame, 0.5)
-    
-    -- Create key title
-    self.keyTitle = Instance.new("TextLabel")
-    self.keyTitle.Name = "KeyTitle"
-    self.keyTitle.BackgroundTransparency = 1
-    self.keyTitle.Position = UDim2.new(0, 0, 0, 20)
-    self.keyTitle.Size = UDim2.new(1, 0, 0, 30)
-    self.keyTitle.Font = Enum.Font.GothamBold
-    self.keyTitle.Text = self.title .. " - Key System"
-    self.keyTitle.TextColor3 = TEXT_COLOR
-    self.keyTitle.TextSize = 18
-    self.keyTitle.Parent = self.keyFrame
-    
-    -- Create key input
-    self.keyInput = Instance.new("TextBox")
-    self.keyInput.Name = "KeyInput"
-    self.keyInput.BackgroundColor3 = ELEMENT_COLOR
-    self.keyInput.Position = UDim2.new(0.5, -125, 0.5, -20)
-    self.keyInput.Size = UDim2.new(0, 250, 0, 40)
-    self.keyInput.Font = Enum.Font.Gotham
-    self.keyInput.PlaceholderText = "Enter Key..."
-    self.keyInput.PlaceholderColor3 = SUBTEXT_COLOR
-    self.keyInput.Text = ""
-    self.keyInput.TextColor3 = TEXT_COLOR
-    self.keyInput.TextSize = 14
-    self.keyInput.ClearTextOnFocus = false
-    self.keyInput.Parent = self.keyFrame
-    CreateRoundCorner(self.keyInput)
-    
-    -- Create submit button
-    self.submitButton = Instance.new("TextButton")
-    self.submitButton.Name = "SubmitButton"
-    self.submitButton.BackgroundColor3 = ACCENT_COLOR
-    self.submitButton.Position = UDim2.new(0.5, -75, 0.5, 30)
-    self.submitButton.Size = UDim2.new(0, 150, 0, 40)
-    self.submitButton.Font = Enum.Font.GothamBold
-    self.submitButton.Text = "Submit"
-    self.submitButton.TextColor3 = TEXT_COLOR
-    self.submitButton.TextSize = 14
-    self.submitButton.Parent = self.keyFrame
-    CreateRoundCorner(self.submitButton)
-    
-    -- Create status label
-    self.keyStatus = Instance.new("TextLabel")
-    self.keyStatus.Name = "KeyStatus"
-    self.keyStatus.BackgroundTransparency = 1
-    self.keyStatus.Position = UDim2.new(0, 0, 1, -40)
-    self.keyStatus.Size = UDim2.new(1, 0, 0, 30)
-    self.keyStatus.Font = Enum.Font.Gotham
-    self.keyStatus.Text = ""
-    self.keyStatus.TextColor3 = SUBTEXT_COLOR
-    self.keyStatus.TextSize = 14
-    self.keyStatus.Parent = self.keyFrame
-    
-    -- Make the key frame draggable
-    MakeDraggable(self.keyFrame, self.keyFrame)
-    
-    -- Submit key functionality
-    self.submitButton.MouseButton1Click:Connect(function()
-        self:CheckKey()
-    end)
-    
-    -- Also check key when pressing enter
-    self.keyInput.FocusLost:Connect(function(enterPressed)
-        if enterPressed then
-            self:CheckKey()
-        end
-    end)
-    
-    -- Hover effects
-    self.submitButton.MouseEnter:Connect(function()
-        TweenService:Create(self.submitButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(110, 160, 255)}):Play()
-    end)
-    
-    self.submitButton.MouseLeave:Connect(function()
-        TweenService:Create(self.submitButton, TweenInfo.new(0.2), {BackgroundColor3 = ACCENT_COLOR}):Play()
-    end)
+-- LunarUI Library
+local LunarUI = {
+    Theme = {
+        Primary = Color3.fromRGB(32, 32, 38),      -- Main background
+        Secondary = Color3.fromRGB(25, 25, 30),    -- Secondary background
+        Accent = Color3.fromRGB(114, 137, 218),    -- Accent color (like Discord blurple)
+        Text = Color3.fromRGB(255, 255, 255),      -- Text color
+        DarkText = Color3.fromRGB(175, 175, 175),  -- Darker text for less important info
+        Positive = Color3.fromRGB(104, 219, 104),  -- For toggles and positive actions
+        Negative = Color3.fromRGB(231, 76, 60),    -- For destructive actions
+        Border = Color3.fromRGB(45, 45, 54),       -- Border color
+    },
+    Flags = {},
+    Windows = {},
+    Notifications = {},
+    Elements = {}
+}
+
+function LunarUI:GetScreenSize()
+    return Vector2.new(
+        workspace.CurrentCamera.ViewportSize.X,
+        workspace.CurrentCamera.ViewportSize.Y
+    )
 end
 
-function FuturaUI:CheckKey()
-    local inputKey = self.keyInput.Text
-    
-    if inputKey == "" then
-        self.keyStatus.Text = "Please enter a key."
-        self.keyStatus.TextColor3 = Color3.fromRGB(255, 200, 100)
-        return
-    end
-    
-    if inputKey == self.key then
-        self.keyStatus.Text = "Key verified successfully!"
-        self.keyStatus.TextColor3 = Color3.fromRGB(100, 255, 100)
-        
-        -- Create a success animation
-        TweenService:Create(self.keyFrame, TweenInfo.new(0.5), {BackgroundColor3 = Color3.fromRGB(40, 60, 40)}):Play()
-        
-        -- Wait for the animation to finish and create the main UI
-        delay(1, function()
-            self.keyVerified = true
-            self.keyGui:Destroy()
-            self:CreateUI()
-        end)
-    else
-        self.keyStatus.Text = "Invalid key. Please try again."
-        self.keyStatus.TextColor3 = Color3.fromRGB(255, 100, 100)
-        
-        -- Create an error animation
-        TweenService:Create(self.keyFrame, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(60, 30, 30)}):Play()
-        delay(0.4, function()
-            TweenService:Create(self.keyFrame, TweenInfo.new(0.2), {BackgroundColor3 = BACKGROUND_COLOR}):Play()
-        end)
+function LunarUI:ToggleUI()
+    for _, window in pairs(self.Windows) do
+        window.Main.Visible = not window.Main.Visible
     end
 end
 
-function FuturaUI:Toggle()
-    self.toggled = not self.toggled
-    
-    if self.toggled then
-        -- Show the UI
-        self.mainFrame.Visible = true
-        TweenService:Create(self.mainFrame, TweenInfo.new(TWEEN_SPEED), {
-            Position = UDim2.new(0.5, -325, 0.5, -200),
-            Size = UDim2.new(0, 650, 0, 400)
-        }):Play()
-        
-        if self.isMobile then
-            TweenService:Create(self.mobileToggle, TweenInfo.new(TWEEN_SPEED), {
-                Position = UDim2.new(0, 10, 0, 10)
-            }):Play()
-        end
-    else
-        -- Hide the UI
-        TweenService:Create(self.mainFrame, TweenInfo.new(TWEEN_SPEED), {
-            Position = UDim2.new(0.5, -325, 1, 50),
-            Size = UDim2.new(0, 650, 0, 400)
-        }):Play()
-        
-        if self.isMobile then
-            TweenService:Create(self.mobileToggle, TweenInfo.new(TWEEN_SPEED), {
-                Position = UDim2.new(0, 10, 1, -60)
-            }):Play()
-        end
-        
-        -- Delay hiding completely until animation finishes
-        delay(TWEEN_SPEED, function()
-            if not self.toggled then
-                self.mainFrame.Visible = false
-            end
-        end)
-    end
-end
-
-function FuturaUI:AddSection(name)
-    -- Create a new section
-    local section = {
-        name = name,
-        elements = {},
-        contentFrame = nil,
-        button = nil
-    }
-    
-    -- Create the section button
-    section.button = Instance.new("TextButton")
-    section.button.Name = name .. "Button"
-    section.button.BackgroundColor3 = ELEMENT_COLOR
-    section.button.Size = UDim2.new(1, -20, 0, 40)
-    section.button.Font = Enum.Font.GothamSemibold
-    section.button.Text = name
-    section.button.TextColor3 = TEXT_COLOR
-    section.button.TextSize = 14
-    section.button.Parent = self.sectionsScroll
-    CreateRoundCorner(section.button)
-    
-    -- Create the section content frame
-    section.contentFrame = Instance.new("Frame")
-    section.contentFrame.Name = name .. "Content"
-    section.contentFrame.BackgroundTransparency = 1
-    section.contentFrame.Size = UDim2.new(1, 0, 0, 0)
-    section.contentFrame.Parent = self.contentScroll
-    section.contentFrame.Visible = false
-    
-    -- Create the section content list layout
-    local contentList = Instance.new("UIListLayout")
-    contentList.Name = "ContentList"
-    contentList.Padding = UDim.new(0, 8)
-    contentList.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    contentList.SortOrder = Enum.SortOrder.LayoutOrder
-    contentList.Parent = section.contentFrame
-    
-    -- Setup click handler
-    section.button.MouseButton1Click:Connect(function()
-        self:SelectSection(name)
-    end)
-    
-    -- Hover effects
-    section.button.MouseEnter:Connect(function()
-        if self.currentSection ~= name then
-            TweenService:Create(section.button, TweenInfo.new(0.2), {BackgroundColor3 = HOVER_COLOR_LIGHT}):Play()
-        end
-    end)
-    
-    section.button.MouseLeave:Connect(function()
-        if self.currentSection ~= name then
-            TweenService:Create(section.button, TweenInfo.new(0.2), {BackgroundColor3 = ELEMENT_COLOR}):Play()
-        end
-    end)
-    
-    -- Update content size when elements change
-    contentList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        section.contentFrame.Size = UDim2.new(1, 0, 0, contentList.AbsoluteContentSize.Y)
-        self.contentScroll.CanvasSize = UDim2.new(0, 0, 0, self.contentList.AbsoluteContentSize.Y + 20)
-    end)
-    
-    -- Add section to the sections table
-    table.insert(self.sections, section)
-    
-    -- Select this section if it's the first one
-    if #self.sections == 1 then
-        self:SelectSection(name)
-    end
-    
-    -- Return the section for chaining
-    return self
-end
-
-function FuturaUI:SelectSection(name)
-    -- Hide all sections
-    for _, section in pairs(self.sections) do
-        section.contentFrame.Visible = false
-        TweenService:Create(section.button, TweenInfo.new(0.2), {
-            BackgroundColor3 = ELEMENT_COLOR,
-            TextColor3 = TEXT_COLOR
-        }):Play()
-    end
-    
-    -- Find and show the selected section
-    for _, section in pairs(self.sections) do
-        if section.name == name then
-            section.contentFrame.Visible = true
-            TweenService:Create(section.button, TweenInfo.new(0.2), {
-                BackgroundColor3 = ACCENT_COLOR,
-                TextColor3 = Color3.fromRGB(255, 255, 255)
-            }):Play()
-            self.currentSection = name
-            break
-        end
-    end
-end
-
-function FuturaUI:FindSection(name)
-    for _, section in pairs(self.sections) do
-        if section.name == name then
-            return section
-        end
-    end
-    return nil
-end
-
--- UI Elements for Sections
-
-function FuturaUI:AddLabel(sectionName, text)
-    local section = self:FindSection(sectionName)
-    if not section then return end
-    
-    local labelFrame = Instance.new("Frame")
-    labelFrame.Name = "LabelFrame"
-    labelFrame.BackgroundTransparency = 1
-    labelFrame.Size = UDim2.new(1, 0, 0, 30)
-    labelFrame.Parent = section.contentFrame
-    
-    local label = Instance.new("TextLabel")
-    label.Name = "Label"
-    label.BackgroundTransparency = 1
-    label.Size = UDim2.new(1, 0, 1, 0)
-    label.Font = Enum.Font.GothamSemibold
-    label.Text = text
-    label.TextColor3 = TEXT_COLOR
-    label.TextSize = 14
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = labelFrame
-    
-    -- Return the label for potential updates
-    return label
-end
-
-function FuturaUI:AddButton(sectionName, text, callback)
-    local section = self:FindSection(sectionName)
-    if not section then return end
-    
-    local button = Instance.new("TextButton")
-    button.Name = text .. "Button"
-    button.BackgroundColor3 = ELEMENT_COLOR
-    button.Size = UDim2.new(1, 0, 0, 40)
-    button.Font = Enum.Font.GothamSemibold
-    button.Text = text
-    button.TextColor3 = TEXT_COLOR
-    button.TextSize = 14
-    button.Parent = section.contentFrame
-    CreateRoundCorner(button)
-    
-    -- Hover effects
-    button.MouseEnter:Connect(function()
-        TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = HOVER_COLOR_LIGHT}):Play()
-    end)
-    
-    button.MouseLeave:Connect(function()
-        TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = ELEMENT_COLOR}):Play()
-    end)
-    
-    -- Click effect and callback
-    button.MouseButton1Click:Connect(function()
-        -- Visual feedback
-        TweenService:Create(button, TweenInfo.new(0.1), {BackgroundColor3 = ACCENT_COLOR}):Play()
-        delay(0.2, function()
-            TweenService:Create(button, TweenInfo.new(0.1), {BackgroundColor3 = ELEMENT_COLOR}):Play()
-        end)
-        
-        -- Execute callback
-        if callback then
-            callback()
-        end
-    end)
-    
-    return button
-end
-
-function FuturaUI:AddToggle(sectionName, text, default, callback)
-    local section = self:FindSection(sectionName)
-    if not section then return end
-    
-    local toggleFrame = Instance.new("Frame")
-    toggleFrame.Name = text .. "Toggle"
-    toggleFrame.BackgroundTransparency = 1
-    toggleFrame.Size = UDim2.new(1, 0, 0, 40)
-    toggleFrame.Parent = section.contentFrame
-    
-    local toggleLabel = Instance.new("TextLabel")
-    toggleLabel.Name = "Label"
-    toggleLabel.BackgroundTransparency = 1
-    toggleLabel.Position = UDim2.new(0, 0, 0, 0)
-    toggleLabel.Size = UDim2.new(1, -60, 1, 0)
-    toggleLabel.Font = Enum.Font.Gotham
-    toggleLabel.Text = text
-    toggleLabel.TextColor3 = TEXT_COLOR
-    toggleLabel.TextSize = 14
-    toggleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    toggleLabel.Parent = toggleFrame
-    
-    local toggleButton = Instance.new("Frame")
-    toggleButton.Name = "Button"
-    toggleButton.BackgroundColor3 = ELEMENT_COLOR
-    toggleButton.Position = UDim2.new(1, -50, 0.5, -12)
-    toggleButton.Size = UDim2.new(0, 50, 0, 24)
-    toggleButton.Parent = toggleFrame
-    CreateRoundCorner(toggleButton, UDim.new(1, 0))
-    
-    local toggleIndicator = Instance.new("Frame")
-    toggleIndicator.Name = "Indicator"
-    toggleIndicator.AnchorPoint = Vector2.new(0, 0.5)
-    toggleIndicator.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    toggleIndicator.Position = UDim2.new(0, 4, 0.5, 0)
-    toggleIndicator.Size = UDim2.new(0, 16, 0, 16)
-    toggleIndicator.Parent = toggleButton
-    CreateRoundCorner(toggleIndicator, UDim.new(1, 0))
-    
-    -- State
-    local toggled = default or false
-    
-    -- Update toggle state
-    local function updateToggle()
-        if toggled then
-            TweenService:Create(toggleButton, TweenInfo.new(0.2), {BackgroundColor3 = ACCENT_COLOR}):Play()
-            TweenService:Create(toggleIndicator, TweenInfo.new(0.2), {Position = UDim2.new(0, 30, 0.5, 0)}):Play()
-        else
-            TweenService:Create(toggleButton, TweenInfo.new(0.2), {BackgroundColor3 = ELEMENT_COLOR}):Play()
-            TweenService:Create(toggleIndicator, TweenInfo.new(0.2), {Position = UDim2.new(0, 4, 0.5, 0)}):Play()
-        end
-        
-        if callback then
-            callback(toggled)
+function LunarUI:SetTheme(theme)
+    for key, value in pairs(theme) do
+        if self.Theme[key] then
+            self.Theme[key] = value
         end
     end
     
-    -- Initialize
-    if toggled then
-        toggleButton.BackgroundColor3 = ACCENT_COLOR
-        toggleIndicator.Position = UDim2.new(0, 30, 0.5, 0)
-    end
-    
-    -- Create a transparent button that covers the entire frame for better UX
-    local clickHandler = Instance.new("TextButton")
-    clickHandler.Name = "ClickHandler"
-    clickHandler.BackgroundTransparency = 1
-    clickHandler.Size = UDim2.new(1, 0, 1, 0)
-    clickHandler.Text = ""
-    clickHandler.Parent = toggleFrame
-    
-    -- Click handler
-    clickHandler.MouseButton1Click:Connect(function()
-        toggled = not toggled
-        updateToggle()
-    end)
-    
-    -- Return control functions
-    return {
-        SetValue = function(value)
-            toggled = value
-            updateToggle()
-        end,
-        GetValue = function()
-            return toggled
-        end
-    }
+    -- Update UI elements with new theme
+    self:UpdateTheme()
 end
 
-function FuturaUI:AddSlider(sectionName, text, min, max, default, callback)
-    local section = self:FindSection(sectionName)
-    if not section then return end
-    
-    min = min or 0
-    max = max or 100
-    default = default or min
-    
-    local sliderFrame = Instance.new("Frame")
-    sliderFrame.Name = text .. "Slider"
-    sliderFrame.BackgroundTransparency = 1
-    sliderFrame.Size = UDim2.new(1, 0, 0, 60)
-    sliderFrame.Parent = section.contentFrame
-    
-    local sliderLabel = Instance.new("TextLabel")
-    sliderLabel.Name = "Label"
-    sliderLabel.BackgroundTransparency = 1
-    sliderLabel.Position = UDim2.new(0, 0, 0, 0)
-    sliderLabel.Size = UDim2.new(1, 0, 0, 20)
-    sliderLabel.Font = Enum.Font.Gotham
-    sliderLabel.Text = text
-    sliderLabel.TextColor3 = TEXT_COLOR
-    sliderLabel.TextSize = 14
-    sliderLabel.TextXAlignment = Enum.TextXAlignment.Left
-    sliderLabel.Parent = sliderFrame
-    
-    local valueLabel = Instance.new("TextLabel")
-    valueLabel.Name = "Value"
-    valueLabel.BackgroundTransparency = 1
-    valueLabel.Position = UDim2.new(1, -40, 0, 0)
-    valueLabel.Size = UDim2.new(0, 40, 0, 20)
-    valueLabel.Font = Enum.Font.GothamBold
-    valueLabel.Text = tostring(default)
-    valueLabel.TextColor3 = ACCENT_COLOR
-    valueLabel.TextSize = 14
-    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
-    valueLabel.Parent = sliderFrame
-    
-    local sliderBackground = Instance.new("Frame")
-    sliderBackground.Name = "Background"
-    sliderBackground.BackgroundColor3 = ELEMENT_COLOR
-    sliderBackground.Position = UDim2.new(0, 0, 0, 30)
-    sliderBackground.Size = UDim2.new(1, 0, 0, 10)
-    sliderBackground.Parent = sliderFrame
-    CreateRoundCorner(sliderBackground, UDim.new(1, 0))
-    
-    local sliderFill = Instance.new("Frame")
-    sliderFill.Name = "Fill"
-    sliderFill.BackgroundColor3 = ACCENT_COLOR
-    sliderFill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
-    sliderFill.Parent = sliderBackground
-    CreateRoundCorner(sliderFill, UDim.new(1, 0))
-    
-    local sliderButton = Instance.new("TextButton")
-    sliderButton.Name = "Button"
-    sliderButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    sliderButton.Position = UDim2.new(sliderFill.Size.X.Scale, -5, 0.5, 0)
-    sliderButton.Size = UDim2.new(0, 15, 0, 15)
-    sliderButton.Text = ""
-    sliderButton.AnchorPoint = Vector2.new(0.5, 0.5)
-    sliderButton.Parent = sliderBackground
-    CreateRoundCorner(sliderButton, UDim.new(1, 0))
-    
-    -- State
-    local value = default
-    local dragging = false
-    
-    -- Update slider value
-    local function updateSlider(newValue)
-        value = math.clamp(newValue, min, max)
-        local scale = (value - min) / (max - min)
-        
-        -- Update visual elements
-        TweenService:Create(sliderFill, TweenInfo.new(0.1), {Size = UDim2.new(scale, 0, 1, 0)}):Play()
-        TweenService:Create(sliderButton, TweenInfo.new(0.1), {Position = UDim2.new(scale, 0, 0.5, 0)}):Play()
-        valueLabel.Text = tostring(math.floor(value))
-        
-        if callback then
-            callback(value)
-        end
-    end
-    
-    -- Slider interaction
-    sliderButton.MouseButton1Down:Connect(function()
-        dragging = true
-    end)
-    
-    sliderBackground.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            
-            -- Calculate value based on input position
-            local scale = math.clamp((input.Position.X - sliderBackground.AbsolutePosition.X) / sliderBackground.AbsoluteSize.X, 0, 1)
-            local newValue = min + (max - min) * scale
-            updateSlider(newValue)
-        end
-    end)
-    
-    UserInputService.InputEnded:Connect(function(input)
-        if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and dragging then
-            dragging = false
-        end
-    end)
-    
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            -- Calculate value based on input position
-            local scale = math.clamp((input.Position.X - sliderBackground.AbsolutePosition.X) / sliderBackground.AbsoluteSize.X, 0, 1)
-            local newValue = min + (max - min) * scale
-            updateSlider(newValue)
-        end
-    end)
-    
-    -- Initialize
-    updateSlider(default)
-    
-    -- Return control functions
-    return {
-        SetValue = function(newValue)
-            updateSlider(newValue)
-        end,
-        GetValue = function()
-            return value
-        end
-    }
+function LunarUI:UpdateTheme()
+    -- This would update all UI elements with the current theme
+    -- To be implemented based on UI structure
 end
 
-function FuturaUI:AddDropdown(sectionName, text, options, default, callback)
-    local section = self:FindSection(sectionName)
-    if not section then return end
-    
+-- Notifications System
+function LunarUI:CreateNotification(options)
     options = options or {}
-    default = default or options[1] or ""
+    local title = options.Title or "Notification"
+    local content = options.Content or ""
+    local duration = options.Duration or 3
+    local type = options.Type or "Info" -- Info, Success, Error, Warning
     
-    -- Create a separate container for the dropdown to manage Z-index and layering
-    local dropdownContainer = Instance.new("Frame")
-    dropdownContainer.Name = text .. "DropdownContainer"
-    dropdownContainer.BackgroundTransparency = 1
-    dropdownContainer.Size = UDim2.new(1, 0, 0, 70)
-    dropdownContainer.ZIndex = 5 -- Base Z-index for container
-    dropdownContainer.Parent = section.contentFrame
-    
-    local dropdownFrame = Instance.new("Frame")
-    dropdownFrame.Name = text .. "Dropdown"
-    dropdownFrame.BackgroundTransparency = 1
-    dropdownFrame.Size = UDim2.new(1, 0, 0, 70)
-    dropdownFrame.ZIndex = 5 -- Match container Z-index
-    dropdownFrame.Parent = dropdownContainer
-    
-    local dropdownLabel = Instance.new("TextLabel")
-    dropdownLabel.Name = "Label"
-    dropdownLabel.BackgroundTransparency = 1
-    dropdownLabel.Position = UDim2.new(0, 0, 0, 0)
-    dropdownLabel.Size = UDim2.new(1, 0, 0, 20)
-    dropdownLabel.Font = Enum.Font.Gotham
-    dropdownLabel.Text = text
-    dropdownLabel.TextColor3 = TEXT_COLOR
-    dropdownLabel.TextSize = 14
-    dropdownLabel.TextXAlignment = Enum.TextXAlignment.Left
-    dropdownLabel.ZIndex = 6 -- Increase Z-index by 1
-    dropdownLabel.Parent = dropdownFrame
-    
-    local dropdownButton = Instance.new("TextButton")
-    dropdownButton.Name = "Button"
-    dropdownButton.BackgroundColor3 = ELEMENT_COLOR
-    dropdownButton.Position = UDim2.new(0, 0, 0, 25)
-    dropdownButton.Size = UDim2.new(1, 0, 0, 40)
-    dropdownButton.Font = Enum.Font.Gotham
-    dropdownButton.Text = default
-    dropdownButton.TextColor3 = TEXT_COLOR
-    dropdownButton.TextSize = 14
-    dropdownButton.TextXAlignment = Enum.TextXAlignment.Left
-    dropdownButton.TextTruncate = Enum.TextTruncate.AtEnd
-    dropdownButton.ZIndex = 6 -- Increase Z-index by 1
-    dropdownButton.Parent = dropdownFrame
-    CreateRoundCorner(dropdownButton)
-    
-    local paddingLeft = Instance.new("UIPadding")
-    paddingLeft.Name = "PaddingLeft"
-    paddingLeft.PaddingLeft = UDim.new(0, 10)
-    paddingLeft.Parent = dropdownButton
-    
-    local expandIcon = Instance.new("ImageLabel")
-    expandIcon.Name = "ExpandIcon"
-    expandIcon.BackgroundTransparency = 1
-    expandIcon.Position = UDim2.new(1, -30, 0.5, -8)
-    expandIcon.Size = UDim2.new(0, 16, 0, 16)
-    expandIcon.Image = "rbxassetid://6031091004"  -- Dropdown arrow
-    expandIcon.ImageColor3 = TEXT_COLOR
-    expandIcon.ZIndex = 7 -- Increase Z-index by 1
-    expandIcon.Parent = dropdownButton
-    
-    -- Create a dropdown menu that will be parented to GuiBase when opened
-    -- This ensures it's displayed on top of everything
-    local optionsFrame = Instance.new("Frame")
-    optionsFrame.Name = "Options"
-    optionsFrame.BackgroundColor3 = ELEMENT_COLOR
-    optionsFrame.Size = UDim2.new(1, 0, 0, 0)
-    optionsFrame.ClipsDescendants = true
-    optionsFrame.Visible = false
-    optionsFrame.ZIndex = 100 -- Very high Z-index to ensure it's on top
-    optionsFrame.Parent = self.guiBase -- Parent to the main GUI base instead of the button
-    CreateRoundCorner(optionsFrame)
-    
-    -- Create a background overlay to prevent clicking through
-    local overlay = Instance.new("Frame")
-    overlay.Name = "DropdownOverlay"
-    overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    overlay.BackgroundTransparency = 0.7 -- Semi-transparent
-    overlay.BorderSizePixel = 0
-    overlay.Size = UDim2.fromScale(1, 1)
-    overlay.ZIndex = 99 -- Just below the dropdown menu
-    overlay.Visible = false
-    overlay.Parent = self.guiBase
-    
-    local optionsList = Instance.new("UIListLayout")
-    optionsList.Name = "List"
-    optionsList.Padding = UDim.new(0, 5)
-    optionsList.SortOrder = Enum.SortOrder.LayoutOrder
-    optionsList.Parent = optionsFrame
-    
-    local optionsPadding = Instance.new("UIPadding")
-    optionsPadding.Name = "Padding"
-    optionsPadding.PaddingTop = UDim.new(0, 5)
-    optionsPadding.PaddingBottom = UDim.new(0, 5)
-    optionsPadding.PaddingLeft = UDim.new(0, 10)
-    optionsPadding.PaddingRight = UDim.new(0, 10)
-    optionsPadding.Parent = optionsFrame
-    
-    -- State
-    local expanded = false
-    local selectedOption = default
-    
-    -- Create the options
-    local optionButtons = {}
-    for i, option in pairs(options) do
-        local optionButton = Instance.new("TextButton")
-        optionButton.Name = "Option_" .. option
-        optionButton.BackgroundTransparency = 1
-        optionButton.Size = UDim2.new(1, 0, 0, 30)
-        optionButton.Font = Enum.Font.Gotham
-        optionButton.Text = option
-        optionButton.TextColor3 = TEXT_COLOR
-        optionButton.TextSize = 14
-        optionButton.TextXAlignment = Enum.TextXAlignment.Left
-        optionButton.ZIndex = 11
-        optionButton.Parent = optionsFrame
-        
-        optionButton.MouseEnter:Connect(function()
-            TweenService:Create(optionButton, TweenInfo.new(0.1), {BackgroundTransparency = 0.9}):Play()
-        end)
-        
-        optionButton.MouseLeave:Connect(function()
-            TweenService:Create(optionButton, TweenInfo.new(0.1), {BackgroundTransparency = 1}):Play()
-        end)
-        
-        optionButton.MouseButton1Click:Connect(function()
-            selectedOption = option
-            dropdownButton.Text = option
-            
-            -- Toggle dropdown state
-            expanded = false
-            TweenService:Create(optionsFrame, TweenInfo.new(0.2), {Size = UDim2.new(1, 0, 0, 0)}):Play()
-            delay(0.2, function()
-                optionsFrame.Visible = false
-            end)
-            
-            -- Handle callback
-            if callback then
-                callback(option)
-            end
-        end)
-        
-        table.insert(optionButtons, optionButton)
-    end
-    
-    -- Update options frame height based on content
-    optionsList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        if expanded then
-            optionsFrame.Size = UDim2.new(1, 0, 0, optionsList.AbsoluteContentSize.Y + 10)
-        end
-    end)
-    
-    -- Toggle dropdown
-    dropdownButton.MouseButton1Click:Connect(function()
-        expanded = not expanded
-        
-        if expanded then
-            -- Position the dropdown relative to the button in screen space
-            local buttonAbsPos = dropdownButton.AbsolutePosition
-            local buttonAbsSize = dropdownButton.AbsoluteSize
-            
-            optionsFrame.Position = UDim2.new(0, buttonAbsPos.X, 0, buttonAbsPos.Y + buttonAbsSize.Y + 5)
-            optionsFrame.Size = UDim2.new(0, buttonAbsSize.X, 0, 0)
-            
-            -- Show overlay
-            overlay.Visible = true
-            overlay.ZIndex = 99
-            
-            -- Show dropdown
-            optionsFrame.Visible = true
-            TweenService:Create(optionsFrame, TweenInfo.new(0.2), {Size = UDim2.new(0, buttonAbsSize.X, 0, optionsList.AbsoluteContentSize.Y + 10)}):Play()
-            
-            -- Add a click handler to the overlay to close dropdown when clicking outside
-            overlay.InputBegan:Connect(function(input)
-                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                    expanded = false
-                    TweenService:Create(optionsFrame, TweenInfo.new(0.2), {Size = UDim2.new(0, buttonAbsSize.X, 0, 0)}):Play()
-                    overlay.Visible = false
-                    delay(0.2, function()
-                        if not expanded then
-                            optionsFrame.Visible = false
-                        end
-                    end)
-                end
-            end)
-        else
-            -- Hide dropdown and overlay
-            TweenService:Create(optionsFrame, TweenInfo.new(0.2), {Size = UDim2.new(0, optionsFrame.AbsoluteSize.X, 0, 0)}):Play()
-            overlay.Visible = false
-            delay(0.2, function()
-                if not expanded then
-                    optionsFrame.Visible = false
-                end
-            end)
-        end
-    end)
-    
-    -- Hover effects
-    dropdownButton.MouseEnter:Connect(function()
-        TweenService:Create(dropdownButton, TweenInfo.new(0.2), {BackgroundColor3 = HOVER_COLOR_LIGHT}):Play()
-    end)
-    
-    dropdownButton.MouseLeave:Connect(function()
-        TweenService:Create(dropdownButton, TweenInfo.new(0.2), {BackgroundColor3 = ELEMENT_COLOR}):Play()
-    end)
-    
-    -- Return control functions
-    return {
-        SetValue = function(option)
-            if table.find(options, option) then
-                selectedOption = option
-                dropdownButton.Text = option
-                
-                if callback then
-                    callback(option)
-                end
-            end
-        end,
-        GetValue = function()
-            return selectedOption
-        end,
-        Refresh = function(newOptions, keepValue)
-            -- Clear existing options
-            for _, btn in pairs(optionButtons) do
-                btn:Destroy()
-            end
-            optionButtons = {}
-            
-            -- Update options list
-            options = newOptions
-            
-            -- Reset value if needed
-            if not keepValue or not table.find(newOptions, selectedOption) then
-                selectedOption = newOptions[1] or ""
-                dropdownButton.Text = selectedOption
-            end
-            
-            -- Recreate options
-            for i, option in pairs(options) do
-                local optionButton = Instance.new("TextButton")
-                optionButton.Name = "Option_" .. option
-                optionButton.BackgroundTransparency = 1
-                optionButton.Size = UDim2.new(1, 0, 0, 30)
-                optionButton.Font = Enum.Font.Gotham
-                optionButton.Text = option
-                optionButton.TextColor3 = TEXT_COLOR
-                optionButton.TextSize = 14
-                optionButton.TextXAlignment = Enum.TextXAlignment.Left
-                optionButton.ZIndex = 11
-                optionButton.Parent = optionsFrame
-                
-                optionButton.MouseEnter:Connect(function()
-                    TweenService:Create(optionButton, TweenInfo.new(0.1), {BackgroundTransparency = 0.9}):Play()
-                end)
-                
-                optionButton.MouseLeave:Connect(function()
-                    TweenService:Create(optionButton, TweenInfo.new(0.1), {BackgroundTransparency = 1}):Play()
-                end)
-                
-                optionButton.MouseButton1Click:Connect(function()
-                    selectedOption = option
-                    dropdownButton.Text = option
-                    
-                    -- Toggle dropdown state
-                    expanded = false
-                    TweenService:Create(optionsFrame, TweenInfo.new(0.2), {Size = UDim2.new(0, optionsFrame.AbsoluteSize.X, 0, 0)}):Play()
-                    overlay.Visible = false
-                    delay(0.2, function()
-                        optionsFrame.Visible = false
-                    end)
-                    
-                    -- Handle callback
-                    if callback then
-                        callback(option)
-                    end
-                end)
-                
-                table.insert(optionButtons, optionButton)
-            end
-            
-            -- Trigger callback if needed
-            if callback and keepValue and selectedOption ~= "" then
-                callback(selectedOption)
-            end
-        end
+    -- Colors based on notification type
+    local typeColors = {
+        Info = self.Theme.Accent,
+        Success = self.Theme.Positive,
+        Error = self.Theme.Negative,
+        Warning = Color3.fromRGB(230, 126, 34) -- Orange
     }
-end
-
-function FuturaUI:AddTextbox(sectionName, text, placeholder, default, callback)
-    local section = self:FindSection(sectionName)
-    if not section then return end
     
-    placeholder = placeholder or "Enter text..."
-    default = default or ""
-    
-    local textboxFrame = Instance.new("Frame")
-    textboxFrame.Name = text .. "Textbox"
-    textboxFrame.BackgroundTransparency = 1
-    textboxFrame.Size = UDim2.new(1, 0, 0, 70)
-    textboxFrame.Parent = section.contentFrame
-    
-    local textboxLabel = Instance.new("TextLabel")
-    textboxLabel.Name = "Label"
-    textboxLabel.BackgroundTransparency = 1
-    textboxLabel.Position = UDim2.new(0, 0, 0, 0)
-    textboxLabel.Size = UDim2.new(1, 0, 0, 20)
-    textboxLabel.Font = Enum.Font.Gotham
-    textboxLabel.Text = text
-    textboxLabel.TextColor3 = TEXT_COLOR
-    textboxLabel.TextSize = 14
-    textboxLabel.TextXAlignment = Enum.TextXAlignment.Left
-    textboxLabel.Parent = textboxFrame
-    
-    local textbox = Instance.new("TextBox")
-    textbox.Name = "Input"
-    textbox.BackgroundColor3 = ELEMENT_COLOR
-    textbox.Position = UDim2.new(0, 0, 0, 25)
-    textbox.Size = UDim2.new(1, 0, 0, 40)
-    textbox.Font = Enum.Font.Gotham
-    textbox.PlaceholderText = placeholder
-    textbox.PlaceholderColor3 = SUBTEXT_COLOR
-    textbox.Text = default
-    textbox.TextColor3 = TEXT_COLOR
-    textbox.TextSize = 14
-    textbox.TextXAlignment = Enum.TextXAlignment.Left
-    textbox.ClearTextOnFocus = false
-    textbox.Parent = textboxFrame
-    CreateRoundCorner(textbox)
-    
-    local paddingLeft = Instance.new("UIPadding")
-    paddingLeft.Name = "PaddingLeft"
-    paddingLeft.PaddingLeft = UDim.new(0, 10)
-    paddingLeft.Parent = textbox
-    
-    -- Focus effects
-    textbox.Focused:Connect(function()
-        TweenService:Create(textbox, TweenInfo.new(0.2), {BackgroundColor3 = HOVER_COLOR_DARK}):Play()
-    end)
-    
-    textbox.FocusLost:Connect(function(enterPressed)
-        TweenService:Create(textbox, TweenInfo.new(0.2), {BackgroundColor3 = ELEMENT_COLOR}):Play()
-        
-        if callback then
-            callback(textbox.Text, enterPressed)
-        end
-    end)
-    
-    -- Return control functions
-    return {
-        SetValue = function(value)
-            textbox.Text = value
-            
-            if callback then
-                callback(value, false)
-            end
-        end,
-        GetValue = function()
-            return textbox.Text
-        end
-    }
-end
-
-function FuturaUI:AddColorPicker(sectionName, text, default, callback)
-    local section = self:FindSection(sectionName)
-    if not section then return end
-    
-    default = default or Color3.fromRGB(255, 255, 255)
-    
-    local colorPickerFrame = Instance.new("Frame")
-    colorPickerFrame.Name = text .. "ColorPicker"
-    colorPickerFrame.BackgroundTransparency = 1
-    colorPickerFrame.Size = UDim2.new(1, 0, 0, 40)
-    colorPickerFrame.Parent = section.contentFrame
-    
-    local colorLabel = Instance.new("TextLabel")
-    colorLabel.Name = "Label"
-    colorLabel.BackgroundTransparency = 1
-    colorLabel.Position = UDim2.new(0, 0, 0, 0)
-    colorLabel.Size = UDim2.new(1, -60, 1, 0)
-    colorLabel.Font = Enum.Font.Gotham
-    colorLabel.Text = text
-    colorLabel.TextColor3 = TEXT_COLOR
-    colorLabel.TextSize = 14
-    colorLabel.TextXAlignment = Enum.TextXAlignment.Left
-    colorLabel.Parent = colorPickerFrame
-    
-    local colorDisplay = Instance.new("Frame")
-    colorDisplay.Name = "Display"
-    colorDisplay.BackgroundColor3 = default
-    colorDisplay.Position = UDim2.new(1, -50, 0.5, -12)
-    colorDisplay.Size = UDim2.new(0, 40, 0, 24)
-    colorDisplay.Parent = colorPickerFrame
-    CreateRoundCorner(colorDisplay)
-    
-    -- Create color selector (a more complex UI component)
-    local colorSelector = Instance.new("Frame")
-    colorSelector.Name = "ColorSelector"
-    colorSelector.BackgroundColor3 = BACKGROUND_COLOR
-    colorSelector.Position = UDim2.new(1, 10, 0, 0)
-    colorSelector.Size = UDim2.new(0, 200, 0, 200)
-    colorSelector.Visible = false
-    colorSelector.ZIndex = 100
-    colorSelector.Parent = colorPickerFrame
-    CreateRoundCorner(colorSelector)
-    CreateShadow(colorSelector)
-    
-    -- This is a simplified color picker with just RGB sliders
-    -- In a full implementation, you might want a color gradient
-    
-    local redSlider = Instance.new("Frame")
-    redSlider.Name = "RedSlider"
-    redSlider.BackgroundTransparency = 1
-    redSlider.Position = UDim2.new(0, 10, 0, 30)
-    redSlider.Size = UDim2.new(1, -20, 0, 40)
-    redSlider.ZIndex = 101
-    redSlider.Parent = colorSelector
-    
-    local redLabel = Instance.new("TextLabel")
-    redLabel.Name = "Label"
-    redLabel.BackgroundTransparency = 1
-    redLabel.Size = UDim2.new(0, 30, 0, 20)
-    redLabel.Font = Enum.Font.GothamBold
-    redLabel.Text = "R:"
-    redLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-    redLabel.TextSize = 14
-    redLabel.ZIndex = 101
-    redLabel.Parent = redSlider
-    
-    local redValue = Instance.new("TextLabel")
-    redValue.Name = "Value"
-    redValue.BackgroundTransparency = 1
-    redValue.Position = UDim2.new(1, -40, 0, 0)
-    redValue.Size = UDim2.new(0, 40, 0, 20)
-    redValue.Font = Enum.Font.Gotham
-    redValue.Text = tostring(math.floor(default.R * 255))
-    redValue.TextColor3 = TEXT_COLOR
-    redValue.TextSize = 14
-    redValue.ZIndex = 101
-    redValue.Parent = redSlider
-    
-    local redBack = Instance.new("Frame")
-    redBack.Name = "Background"
-    redBack.BackgroundColor3 = ELEMENT_COLOR
-    redBack.Position = UDim2.new(0, 40, 0, 25)
-    redBack.Size = UDim2.new(1, -90, 0, 10)
-    redBack.ZIndex = 101
-    redBack.Parent = redSlider
-    CreateRoundCorner(redBack, UDim.new(1, 0))
-    
-    local redFill = Instance.new("Frame")
-    redFill.Name = "Fill"
-    redFill.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
-    redFill.Size = UDim2.new(default.R, 0, 1, 0)
-    redFill.ZIndex = 102
-    redFill.Parent = redBack
-    CreateRoundCorner(redFill, UDim.new(1, 0))
-    
-    -- Green slider
-    local greenSlider = Instance.new("Frame")
-    greenSlider.Name = "GreenSlider"
-    greenSlider.BackgroundTransparency = 1
-    greenSlider.Position = UDim2.new(0, 10, 0, 80)
-    greenSlider.Size = UDim2.new(1, -20, 0, 40)
-    greenSlider.ZIndex = 101
-    greenSlider.Parent = colorSelector
-    
-    local greenLabel = Instance.new("TextLabel")
-    greenLabel.Name = "Label"
-    greenLabel.BackgroundTransparency = 1
-    greenLabel.Size = UDim2.new(0, 30, 0, 20)
-    greenLabel.Font = Enum.Font.GothamBold
-    greenLabel.Text = "G:"
-    greenLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-    greenLabel.TextSize = 14
-    greenLabel.ZIndex = 101
-    greenLabel.Parent = greenSlider
-    
-    local greenValue = Instance.new("TextLabel")
-    greenValue.Name = "Value"
-    greenValue.BackgroundTransparency = 1
-    greenValue.Position = UDim2.new(1, -40, 0, 0)
-    greenValue.Size = UDim2.new(0, 40, 0, 20)
-    greenValue.Font = Enum.Font.Gotham
-    greenValue.Text = tostring(math.floor(default.G * 255))
-    greenValue.TextColor3 = TEXT_COLOR
-    greenValue.TextSize = 14
-    greenValue.ZIndex = 101
-    greenValue.Parent = greenSlider
-    
-    local greenBack = Instance.new("Frame")
-    greenBack.Name = "Background"
-    greenBack.BackgroundColor3 = ELEMENT_COLOR
-    greenBack.Position = UDim2.new(0, 40, 0, 25)
-    greenBack.Size = UDim2.new(1, -90, 0, 10)
-    greenBack.ZIndex = 101
-    greenBack.Parent = greenSlider
-    CreateRoundCorner(greenBack, UDim.new(1, 0))
-    
-    local greenFill = Instance.new("Frame")
-    greenFill.Name = "Fill"
-    greenFill.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
-    greenFill.Size = UDim2.new(default.G, 0, 1, 0)
-    greenFill.ZIndex = 102
-    greenFill.Parent = greenBack
-    CreateRoundCorner(greenFill, UDim.new(1, 0))
-    
-    -- Blue slider
-    local blueSlider = Instance.new("Frame")
-    blueSlider.Name = "BlueSlider"
-    blueSlider.BackgroundTransparency = 1
-    blueSlider.Position = UDim2.new(0, 10, 0, 130)
-    blueSlider.Size = UDim2.new(1, -20, 0, 40)
-    blueSlider.ZIndex = 101
-    blueSlider.Parent = colorSelector
-    
-    local blueLabel = Instance.new("TextLabel")
-    blueLabel.Name = "Label"
-    blueLabel.BackgroundTransparency = 1
-    blueLabel.Size = UDim2.new(0, 30, 0, 20)
-    blueLabel.Font = Enum.Font.GothamBold
-    blueLabel.Text = "B:"
-    blueLabel.TextColor3 = Color3.fromRGB(100, 150, 255)
-    blueLabel.TextSize = 14
-    blueLabel.ZIndex = 101
-    blueLabel.Parent = blueSlider
-    
-    local blueValue = Instance.new("TextLabel")
-    blueValue.Name = "Value"
-    blueValue.BackgroundTransparency = 1
-    blueValue.Position = UDim2.new(1, -40, 0, 0)
-    blueValue.Size = UDim2.new(0, 40, 0, 20)
-    blueValue.Font = Enum.Font.Gotham
-    blueValue.Text = tostring(math.floor(default.B * 255))
-    blueValue.TextColor3 = TEXT_COLOR
-    blueValue.TextSize = 14
-    blueValue.ZIndex = 101
-    blueValue.Parent = blueSlider
-    
-    local blueBack = Instance.new("Frame")
-    blueBack.Name = "Background"
-    blueBack.BackgroundColor3 = ELEMENT_COLOR
-    blueBack.Position = UDim2.new(0, 40, 0, 25)
-    blueBack.Size = UDim2.new(1, -90, 0, 10)
-    blueBack.ZIndex = 101
-    blueBack.Parent = blueSlider
-    CreateRoundCorner(blueBack, UDim.new(1, 0))
-    
-    local blueFill = Instance.new("Frame")
-    blueFill.Name = "Fill"
-    blueFill.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
-    blueFill.Size = UDim2.new(default.B, 0, 1, 0)
-    blueFill.ZIndex = 102
-    blueFill.Parent = blueBack
-    CreateRoundCorner(blueFill, UDim.new(1, 0))
-    
-    -- Close button
-    local closeButton = Instance.new("TextButton")
-    closeButton.Name = "CloseButton"
-    closeButton.BackgroundColor3 = ACCENT_COLOR
-    closeButton.Position = UDim2.new(0, 10, 1, -40)
-    closeButton.Size = UDim2.new(1, -20, 0, 30)
-    closeButton.Font = Enum.Font.GothamBold
-    closeButton.Text = "Close"
-    closeButton.TextColor3 = TEXT_COLOR
-    closeButton.TextSize = 14
-    closeButton.ZIndex = 101
-    closeButton.Parent = colorSelector
-    CreateRoundCorner(closeButton)
-    
-    -- State
-    local selectedColor = default
-    local colorSelectorVisible = false
-    
-    -- Create draggable sliders
-    local function createDraggableSlider(slider, fill, valueLabel, colorComponent)
-        local back = slider:FindFirstChild("Background")
-        local dragging = false
-        
-        local function updateSlider(scale)
-            -- Clamp scale between 0 and 1
-            scale = math.clamp(scale, 0, 1)
-            
-            -- Update fill
-            fill.Size = UDim2.new(scale, 0, 1, 0)
-            
-            -- Update value label
-            valueLabel.Text = tostring(math.floor(scale * 255))
-            
-            -- Update color
-            if colorComponent == "R" then
-                selectedColor = Color3.new(scale, selectedColor.G, selectedColor.B)
-            elseif colorComponent == "G" then
-                selectedColor = Color3.new(selectedColor.R, scale, selectedColor.B)
-            else -- B
-                selectedColor = Color3.new(selectedColor.R, selectedColor.G, scale)
-            end
-            
-            -- Update color display
-            colorDisplay.BackgroundColor3 = selectedColor
-            
-            -- Call callback
-            if callback then
-                callback(selectedColor)
-            end
-        end
-        
-        back.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                dragging = true
-                
-                -- Calculate scale based on input position
-                local scale = math.clamp((input.Position.X - back.AbsolutePosition.X) / back.AbsoluteSize.X, 0, 1)
-                updateSlider(scale)
-            end
-        end)
-        
-        back.InputEnded:Connect(function(input)
-            if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
-                dragging = false
-            end
-        end)
-        
-        UserInputService.InputChanged:Connect(function(input)
-            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                -- Calculate scale based on input position
-                local scale = math.clamp((input.Position.X - back.AbsolutePosition.X) / back.AbsoluteSize.X, 0, 1)
-                updateSlider(scale)
-            end
-        end)
-    end
-    
-    createDraggableSlider(redSlider, redFill, redValue, "R")
-    createDraggableSlider(greenSlider, greenFill, greenValue, "G")
-    createDraggableSlider(blueSlider, blueFill, blueValue, "B")
-    
-    -- Toggle color selector
-    colorDisplay.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            colorSelectorVisible = not colorSelectorVisible
-            colorSelector.Visible = colorSelectorVisible
-        end
-    end)
-    
-    closeButton.MouseButton1Click:Connect(function()
-        colorSelectorVisible = false
-        colorSelector.Visible = false
-    end)
-    
-    -- Return control functions
-    return {
-        SetValue = function(color)
-            selectedColor = color
-            colorDisplay.BackgroundColor3 = color
-            
-            -- Update slider positions
-            redFill.Size = UDim2.new(color.R, 0, 1, 0)
-            greenFill.Size = UDim2.new(color.G, 0, 1, 0)
-            blueFill.Size = UDim2.new(color.B, 0, 1, 0)
-            
-            -- Update value labels
-            redValue.Text = tostring(math.floor(color.R * 255))
-            greenValue.Text = tostring(math.floor(color.G * 255))
-            blueValue.Text = tostring(math.floor(color.B * 255))
-            
-            if callback then
-                callback(color)
-            end
-        end,
-        GetValue = function()
-            return selectedColor
-        end
-    }
-end
-
-function FuturaUI:AddDivider(sectionName, text)
-    local section = self:FindSection(sectionName)
-    if not section then return end
-    
-    local dividerFrame = Instance.new("Frame")
-    dividerFrame.Name = "Divider" .. (text and ("_" .. text) or "")
-    dividerFrame.BackgroundTransparency = 1
-    dividerFrame.Size = UDim2.new(1, 0, 0, 24)
-    dividerFrame.Parent = section.contentFrame
-    
-    local line = Instance.new("Frame")
-    line.Name = "Line"
-    line.BackgroundColor3 = ELEMENT_COLOR
-    line.BorderSizePixel = 0
-    
-    -- Different layout based on whether text is provided
-    if text and text ~= "" then
-        line.Position = UDim2.new(0, 0, 0.5, 0)
-        line.Size = UDim2.new(1, 0, 0, 1)
-        line.Parent = dividerFrame
-        
-        local textLabel = Instance.new("TextLabel")
-        textLabel.Name = "Text"
-        textLabel.BackgroundColor3 = BACKGROUND_COLOR
-        textLabel.BackgroundTransparency = 0
-        textLabel.Position = UDim2.new(0.5, 0, 0, 0)
-        textLabel.AnchorPoint = Vector2.new(0.5, 0)
-        textLabel.Size = UDim2.new(0, 0, 1, 0)
-        textLabel.Font = Enum.Font.GothamBold
-        textLabel.TextColor3 = SUBTEXT_COLOR
-        textLabel.TextSize = 12
-        textLabel.Text = " " .. text .. " "
-        textLabel.Parent = dividerFrame
-        
-        -- Auto-size the label based on text
-        local textSize = TextService:GetTextSize(textLabel.Text, 12, Enum.Font.GothamBold, Vector2.new(math.huge, math.huge))
-        textLabel.Size = UDim2.new(0, textSize.X + 10, 1, 0)
-    else
-        line.Position = UDim2.new(0, 0, 0.5, 0)
-        line.Size = UDim2.new(1, 0, 0, 1)
-        line.Parent = dividerFrame
-    end
-    
-    return dividerFrame
-end
-
-function FuturaUI:Destroy()
-    -- Create closing animation
-    TweenService:Create(self.mainFrame, TweenInfo.new(0.5), {
-        Position = UDim2.new(0.5, -325, 1.2, 0),
-        BackgroundTransparency = 1
-    }):Play()
-    
-    -- Also fade out the mobile toggle if it exists
-    if self.mobileToggle then
-        TweenService:Create(self.mobileToggle, TweenInfo.new(0.5), {
-            Position = UDim2.new(0, 10, 1.2, 0),
-            BackgroundTransparency = 1
-        }):Play()
-    end
-    
-    -- Destroy the UI after animation completes
-    delay(0.6, function()
-        if self.gui then
-            self.gui:Destroy()
-        end
-        if self.keyGui then
-            self.keyGui:Destroy()
-        end
-    end)
-end
-
-function FuturaUI:Notify(title, message, duration)
-    title = title or "Notification"
-    message = message or ""
-    duration = duration or 3
+    local notificationColor = typeColors[type] or self.Theme.Accent
     
     -- Create notification container if it doesn't exist
-    if not self.notificationContainer then
-        self.notificationContainer = Instance.new("Frame")
-        self.notificationContainer.Name = "NotificationContainer"
-        self.notificationContainer.BackgroundTransparency = 1
-        self.notificationContainer.Position = UDim2.new(1, -310, 0, 10)
-        self.notificationContainer.Size = UDim2.new(0, 300, 1, -20)
-        self.notificationContainer.Parent = self.gui
+    if not self.NotificationContainer then
+        self.NotificationContainer = Utility:Create("Frame", {
+            Name = "NotificationContainer",
+            AnchorPoint = Vector2.new(1, 1),
+            BackgroundTransparency = 1,
+            Position = UDim2.new(1, -20, 1, -20),
+            Size = UDim2.new(0, 300, 1, -40),
+            ZIndex = 1000,
+            Parent = (UIParent and UIParent:FindFirstChild("LunarUI")) or Utility:Create("ScreenGui", {
+                Name = "LunarUI",
+                Parent = UIParent or (RunService:IsStudio() and (LocalPlayer and LocalPlayer:WaitForChild("PlayerGui", 5) or game.Players.LocalPlayer:WaitForChild("PlayerGui", 5)) or safeGetService("CoreGui")),
+                ZIndexBehavior = Enum.ZIndexBehavior.Global,
+                ResetOnSpawn = false
+            })
+        })
         
-        local notificationList = Instance.new("UIListLayout")
-        notificationList.Name = "NotificationList"
-        notificationList.Padding = UDim.new(0, 10)
-        notificationList.VerticalAlignment = Enum.VerticalAlignment.Top
-        notificationList.HorizontalAlignment = Enum.HorizontalAlignment.Right
-        notificationList.SortOrder = Enum.SortOrder.LayoutOrder
-        notificationList.Parent = self.notificationContainer
+        Utility:Create("UIListLayout", {
+            Padding = UDim.new(0, 10),
+            HorizontalAlignment = Enum.HorizontalAlignment.Center,
+            VerticalAlignment = Enum.VerticalAlignment.Bottom,
+            SortOrder = Enum.SortOrder.LayoutOrder,
+            Parent = self.NotificationContainer
+        })
     end
     
-    -- Create the notification
-    local notification = Instance.new("Frame")
-    notification.Name = "Notification"
-    notification.BackgroundColor3 = BACKGROUND_COLOR
-    notification.Size = UDim2.new(1, 0, 0, 80)
-    notification.Position = UDim2.new(1, 0, 0, 0)
-    notification.Parent = self.notificationContainer
-    CreateRoundCorner(notification)
-    CreateShadow(notification)
+    -- Create the notification frame
+    local notification = Utility:Create("Frame", {
+        Name = "Notification",
+        BackgroundColor3 = self.Theme.Secondary,
+        BorderColor3 = self.Theme.Border,
+        BorderSizePixel = 1,
+        Size = UDim2.new(1, 0, 0, 0), -- Will be tweened to proper size
+        BackgroundTransparency = 1,
+        ClipsDescendants = true,
+        ZIndex = 1001,
+        Parent = self.NotificationContainer
+    })
     
-    -- Notification title
-    local notificationTitle = Instance.new("TextLabel")
-    notificationTitle.Name = "Title"
-    notificationTitle.BackgroundTransparency = 1
-    notificationTitle.Position = UDim2.new(0, 15, 0, 10)
-    notificationTitle.Size = UDim2.new(1, -30, 0, 20)
-    notificationTitle.Font = Enum.Font.GothamBold
-    notificationTitle.Text = title
-    notificationTitle.TextColor3 = TEXT_COLOR
-    notificationTitle.TextSize = 16
-    notificationTitle.TextXAlignment = Enum.TextXAlignment.Left
-    notificationTitle.Parent = notification
+    Utility:Create("UICorner", {
+        CornerRadius = UDim.new(0, 8),
+        Parent = notification
+    })
     
-    -- Notification message
-    local notificationMessage = Instance.new("TextLabel")
-    notificationMessage.Name = "Message"
-    notificationMessage.BackgroundTransparency = 1
-    notificationMessage.Position = UDim2.new(0, 15, 0, 35)
-    notificationMessage.Size = UDim2.new(1, -30, 0, 40)
-    notificationMessage.Font = Enum.Font.Gotham
-    notificationMessage.Text = message
-    notificationMessage.TextColor3 = SUBTEXT_COLOR
-    notificationMessage.TextSize = 14
-    notificationMessage.TextXAlignment = Enum.TextXAlignment.Left
-    notificationMessage.TextYAlignment = Enum.TextYAlignment.Top
-    notificationMessage.TextWrapped = true
-    notificationMessage.Parent = notification
+    Utility:Create("UIPadding", {
+        PaddingBottom = UDim.new(0, 12),
+        PaddingLeft = UDim.new(0, 12),
+        PaddingRight = UDim.new(0, 12),
+        PaddingTop = UDim.new(0, 12),
+        Parent = notification
+    })
     
-    -- Line at the top
-    local line = Instance.new("Frame")
-    line.Name = "Line"
-    line.BackgroundColor3 = ACCENT_COLOR
-    line.BorderSizePixel = 0
-    line.Position = UDim2.new(0, 0, 0, 0)
-    line.Size = UDim2.new(1, 0, 0, 2)
-    line.Parent = notification
+    local indicator = Utility:Create("Frame", {
+        Name = "Indicator",
+        BackgroundColor3 = notificationColor,
+        BorderSizePixel = 0,
+        Size = UDim2.new(0, 4, 1, 0),
+        Position = UDim2.new(0, 0, 0, 0),
+        ZIndex = 1002,
+        Parent = notification
+    })
     
-    -- Slide in animation
-    TweenService:Create(notification, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {
-        Position = UDim2.new(0, 0, 0, 0)
-    }):Play()
+    Utility:Create("UICorner", {
+        CornerRadius = UDim.new(0, 8),
+        Parent = indicator
+    })
     
-    -- Countdown and slide out
-    delay(duration, function()
-        TweenService:Create(notification, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {
-            Position = UDim2.new(1, 0, 0, 0)
-        }):Play()
+    local titleLabel = Utility:Create("TextLabel", {
+        Name = "Title",
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 10, 0, 0),
+        Size = UDim2.new(1, -10, 0, 20),
+        Font = Enum.Font.GothamBold,
+        Text = title,
+        TextColor3 = notificationColor,
+        TextSize = 16,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 1002,
+        Parent = notification
+    })
+    
+    local contentLabel = Utility:Create("TextLabel", {
+        Name = "Content",
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 10, 0, 26),
+        Size = UDim2.new(1, -10, 0, 0),
+        Font = Enum.Font.Gotham,
+        Text = content,
+        TextColor3 = self.Theme.Text,
+        TextSize = 14,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top,
+        ZIndex = 1002,
+        Parent = notification
+    })
+    
+    -- Calculate the height needed for the content text
+    local textSize = Utility:GetTextSize(content, 14, Enum.Font.Gotham, Vector2.new(notification.AbsoluteSize.X - 34, math.huge))
+    contentLabel.Size = UDim2.new(1, -10, 0, textSize.Y)
+    
+    local notificationHeight = 26 + textSize.Y + 12
+    notification.Size = UDim2.new(1, 0, 0, notificationHeight)
+    
+    -- Animation to show the notification
+    notification.Size = UDim2.new(1, 0, 0, notificationHeight)
+    Utility:Tween(notification, {BackgroundTransparency = 0}, 0.3)
+    
+    -- Progress bar
+    local progressBar = Utility:Create("Frame", {
+        Name = "ProgressBar",
+        BackgroundColor3 = notificationColor,
+        BorderSizePixel = 0,
+        Position = UDim2.new(0, 0, 1, -2),
+        Size = UDim2.new(1, 0, 0, 2),
+        ZIndex = 1002,
+        Parent = notification
+    })
+    
+    -- Animate the progress bar
+    Utility:Tween(progressBar, {Size = UDim2.new(0, 0, 0, 2)}, duration)
+    
+    -- Close after duration
+    task.delay(duration, function()
+        Utility:Tween(notification, {
+            BackgroundTransparency = 1,
+            Position = UDim2.new(1, 0, 0, notification.Position.Y.Offset)
+        }, 0.3)
         
-        delay(0.5, function()
+        task.delay(0.3, function()
             notification:Destroy()
         end)
     end)
@@ -1842,4 +320,1986 @@ function FuturaUI:Notify(title, message, duration)
     return notification
 end
 
-return FuturaUI
+-- Window Creator
+function LunarUI:CreateWindow(options)
+    options = options or {}
+    local title = options.Title or "LunarUI"
+    local subtitle = options.Subtitle or "A Modern UI Library"
+    local size = options.Size or UDim2.new(0, 550, 0, 400)
+    local position = options.Position or UDim2.new(0.5, -275, 0.5, -200)
+    
+    -- Initialize the library if not done already
+    if not self._initialized then
+        self:Init()
+    end
+    
+    -- Create ScreenGui
+    local gui = Utility:Create("ScreenGui", {
+        Name = "LunarUI",
+        Parent = UIParent or (RunService:IsStudio() and (LocalPlayer and LocalPlayer:WaitForChild("PlayerGui", 5) or Players.LocalPlayer:WaitForChild("PlayerGui", 5)) or safeGetService("CoreGui")),
+        ZIndexBehavior = Enum.ZIndexBehavior.Global,
+        ResetOnSpawn = false
+    })
+    
+    -- Main window frame
+    local main = Utility:Create("Frame", {
+        Name = "Main",
+        BackgroundColor3 = self.Theme.Primary,
+        BorderColor3 = self.Theme.Border,
+        BorderSizePixel = 1,
+        Position = position,
+        Size = size,
+        Parent = gui,
+        ClipsDescendants = true
+    })
+    
+    Utility:Create("UICorner", {
+        CornerRadius = UDim.new(0, 8),
+        Parent = main
+    })
+    
+    -- Dropshadow
+    Utility:Create("CanvasGroup", {
+        Name = "Shadow",
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.new(1, 24, 1, 24),
+        ZIndex = -1,
+        GroupTransparency = 0.5,
+        Parent = main
+    }, {
+        Utility:Create("ImageLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(-12, -12),
+            Size = UDim2.new(1, 24, 1, 24),
+            Image = "rbxassetid://6014261993",
+            ImageColor3 = Color3.fromRGB(0, 0, 0),
+            ImageTransparency = 0.5,
+            ScaleType = Enum.ScaleType.Slice,
+            SliceCenter = Rect.new(49, 49, 450, 450)
+        })
+    })
+    
+    -- Topbar
+    local topbar = Utility:Create("Frame", {
+        Name = "Topbar",
+        BackgroundColor3 = self.Theme.Secondary,
+        BorderSizePixel = 0,
+        Size = UDim2.new(1, 0, 0, 40),
+        Parent = main
+    })
+    
+    Utility:Create("UICorner", {
+        CornerRadius = UDim.new(0, 8),
+        Parent = topbar
+    })
+    
+    -- Only round the top corners
+    Utility:Create("Frame", {
+        BackgroundColor3 = self.Theme.Secondary,
+        BorderSizePixel = 0,
+        Position = UDim2.new(0, 0, 0.5, 0),
+        Size = UDim2.new(1, 0, 0.5, 0),
+        Parent = topbar
+    })
+    
+    -- Title and subtitle
+    local titleLabel = Utility:Create("TextLabel", {
+        Name = "Title",
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 15, 0, 5),
+        Size = UDim2.new(0.5, 0, 0, 16),
+        Font = Enum.Font.GothamBold,
+        Text = title,
+        TextColor3 = self.Theme.Text,
+        TextSize = 16,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = topbar
+    })
+    
+    local subtitleLabel = Utility:Create("TextLabel", {
+        Name = "Subtitle",
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 15, 0, 22),
+        Size = UDim2.new(0.5, 0, 0, 14),
+        Font = Enum.Font.Gotham,
+        Text = subtitle,
+        TextColor3 = self.Theme.DarkText,
+        TextSize = 14,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = topbar
+    })
+    
+    -- Close button
+    local closeButton = Utility:Create("ImageButton", {
+        Name = "CloseButton",
+        BackgroundTransparency = 1,
+        Position = UDim2.new(1, -30, 0.5, -8),
+        Size = UDim2.new(0, 16, 0, 16),
+        Image = "rbxassetid://6031094678",
+        ImageColor3 = self.Theme.DarkText,
+        Parent = topbar
+    })
+    
+    closeButton.MouseEnter:Connect(function()
+        Utility:Tween(closeButton, {ImageColor3 = self.Theme.Text}, 0.2)
+    end)
+    
+    closeButton.MouseLeave:Connect(function()
+        Utility:Tween(closeButton, {ImageColor3 = self.Theme.DarkText}, 0.2)
+    end)
+    
+    closeButton.MouseButton1Click:Connect(function()
+        Utility:Tween(main, {Size = UDim2.new(0, size.X.Offset, 0, 0)}, 0.2)
+        task.wait(0.2)
+        gui:Destroy()
+    end)
+    
+    -- Minimize button
+    local minimizeButton = Utility:Create("ImageButton", {
+        Name = "MinimizeButton",
+        BackgroundTransparency = 1,
+        Position = UDim2.new(1, -55, 0.5, -8),
+        Size = UDim2.new(0, 16, 0, 16),
+        Image = "rbxassetid://6031082527",
+        ImageColor3 = self.Theme.DarkText,
+        Parent = topbar
+    })
+    
+    minimizeButton.MouseEnter:Connect(function()
+        Utility:Tween(minimizeButton, {ImageColor3 = self.Theme.Text}, 0.2)
+    end)
+    
+    minimizeButton.MouseLeave:Connect(function()
+        Utility:Tween(minimizeButton, {ImageColor3 = self.Theme.DarkText}, 0.2)
+    end)
+    
+    local minimized = false
+    local originalSize = size
+    
+    minimizeButton.MouseButton1Click:Connect(function()
+        minimized = not minimized
+        if minimized then
+            Utility:Tween(main, {Size = UDim2.new(0, size.X.Offset, 0, 40)}, 0.2)
+        else
+            Utility:Tween(main, {Size = UDim2.new(0, size.X.Offset, 0, originalSize.Y.Offset)}, 0.2)
+        end
+    end)
+    
+    -- Make topbar draggable
+    local dragging = false
+    local dragInput
+    local dragStart
+    local startPos
+    
+    topbar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = main.Position
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    
+    topbar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            dragInput = input
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+    
+    -- Container for tabs and elements
+    local tabContainer = Utility:Create("Frame", {
+        Name = "TabContainer",
+        BackgroundColor3 = self.Theme.Secondary,
+        BorderSizePixel = 0,
+        Position = UDim2.new(0, 0, 0, 40),
+        Size = UDim2.new(0, 140, 1, -40),
+        Parent = main
+    })
+    
+    Utility:Create("UICorner", {
+        CornerRadius = UDim.new(0, 8),
+        Parent = tabContainer
+    })
+    
+    -- Only round the bottom-left corner
+    Utility:Create("Frame", {
+        BackgroundColor3 = self.Theme.Secondary,
+        BorderSizePixel = 0,
+        Position = UDim2.new(0, 0, 0, 0),
+        Size = UDim2.new(1, 0, 0.5, 0),
+        Parent = tabContainer
+    })
+    
+    Utility:Create("Frame", {
+        BackgroundColor3 = self.Theme.Secondary,
+        BorderSizePixel = 0,
+        Position = UDim2.new(0.5, 0, 0, 0),
+        Size = UDim2.new(0.5, 0, 1, 0),
+        Parent = tabContainer
+    })
+    
+    -- Tab List
+    local tabList = Utility:Create("ScrollingFrame", {
+        Name = "TabList",
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Position = UDim2.new(0, 0, 0, 10),
+        Size = UDim2.new(1, 0, 1, -10),
+        CanvasSize = UDim2.new(0, 0, 0, 0), -- Will be updated as tabs are added
+        ScrollBarThickness = 3,
+        ScrollBarImageColor3 = self.Theme.Accent,
+        Parent = tabContainer
+    })
+    
+    Utility:Create("UIListLayout", {
+        Padding = UDim.new(0, 5),
+        HorizontalAlignment = Enum.HorizontalAlignment.Center,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Parent = tabList
+    })
+    
+    Utility:Create("UIPadding", {
+        PaddingTop = UDim.new(0, 5),
+        Parent = tabList
+    })
+    
+    -- Content Container
+    local contentContainer = Utility:Create("Frame", {
+        Name = "ContentContainer",
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Position = UDim2.new(0, 140, 0, 40),
+        Size = UDim2.new(1, -140, 1, -40),
+        Parent = main
+    })
+    
+    -- Window object
+    local window = {
+        Main = main,
+        Topbar = topbar,
+        TabContainer = tabContainer,
+        TabList = tabList,
+        ContentContainer = contentContainer,
+        Tabs = {},
+        TabCount = 0,
+        ActiveTab = nil
+    }
+    
+    -- Create Tab function
+    function window:CreateTab(options)
+        options = options or {}
+        local name = options.Name or "Tab"
+        local icon = options.Icon or "rbxassetid://6031289449" -- Default icon (list)
+        
+        self.TabCount = self.TabCount + 1
+        local tabOrder = self.TabCount
+        
+        -- Tab button
+        local tabButton = Utility:Create("TextButton", {
+            Name = name .. "TabButton",
+            BackgroundColor3 = LunarUI.Theme.Primary,
+            BorderSizePixel = 0,
+            Size = UDim2.new(0.9, 0, 0, 32),
+            Font = Enum.Font.Gotham,
+            Text = "",
+            TextColor3 = LunarUI.Theme.Text,
+            TextSize = 14,
+            AutoButtonColor = false,
+            Parent = self.TabList
+        })
+        
+        Utility:Create("UICorner", {
+            CornerRadius = UDim.new(0, 6),
+            Parent = tabButton
+        })
+        
+        local tabIcon = Utility:Create("ImageLabel", {
+            Name = "Icon",
+            BackgroundTransparency = 1,
+            Position = UDim2.new(0, 10, 0.5, -8),
+            Size = UDim2.new(0, 16, 0, 16),
+            Image = icon,
+            ImageColor3 = LunarUI.Theme.DarkText,
+            Parent = tabButton
+        })
+        
+        local tabName = Utility:Create("TextLabel", {
+            Name = "Label",
+            BackgroundTransparency = 1,
+            Position = UDim2.new(0, 35, 0, 0),
+            Size = UDim2.new(1, -40, 1, 0),
+            Font = Enum.Font.Gotham,
+            Text = name,
+            TextColor3 = LunarUI.Theme.DarkText,
+            TextSize = 14,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Parent = tabButton
+        })
+        
+        -- Tab content
+        local tabContent = Utility:Create("ScrollingFrame", {
+            Name = name .. "TabContent",
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            Size = UDim2.new(1, 0, 1, 0),
+            CanvasSize = UDim2.new(0, 0, 0, 0), -- Will be updated as elements are added
+            ScrollBarThickness = 3,
+            ScrollBarImageColor3 = LunarUI.Theme.Accent,
+            Visible = false,
+            Parent = self.ContentContainer
+        })
+        
+        Utility:Create("UIListLayout", {
+            Padding = UDim.new(0, 10),
+            HorizontalAlignment = Enum.HorizontalAlignment.Center,
+            SortOrder = Enum.SortOrder.LayoutOrder,
+            Parent = tabContent
+        })
+        
+        Utility:Create("UIPadding", {
+            PaddingTop = UDim.new(0, 10),
+            PaddingBottom = UDim.new(0, 10),
+            PaddingLeft = UDim.new(0, 10),
+            PaddingRight = UDim.new(0, 10),
+            Parent = tabContent
+        })
+        
+        -- Tab object
+        local tab = {
+            Button = tabButton,
+            Content = tabContent,
+            Name = name,
+            Elements = {},
+            Sections = {}
+        }
+        
+        -- Handle tab selection
+        tabButton.MouseButton1Click:Connect(function()
+            self:SelectTab(name)
+        })
+        
+        tabButton.MouseEnter:Connect(function()
+            if self.ActiveTab ~= name then
+                Utility:Tween(tabIcon, {ImageColor3 = LunarUI.Theme.Text}, 0.2)
+                Utility:Tween(tabName, {TextColor3 = LunarUI.Theme.Text}, 0.2)
+            end
+        end)
+        
+        tabButton.MouseLeave:Connect(function()
+            if self.ActiveTab ~= name then
+                Utility:Tween(tabIcon, {ImageColor3 = LunarUI.Theme.DarkText}, 0.2)
+                Utility:Tween(tabName, {TextColor3 = LunarUI.Theme.DarkText}, 0.2)
+            end
+        end)
+        
+        -- Add tab to window
+        self.Tabs[name] = tab
+        
+        -- Select tab if it's the first one
+        if tabOrder == 1 then
+            self:SelectTab(name)
+        end
+        
+        -- Update canvas size
+        self.TabList.CanvasSize = UDim2.new(0, 0, 0, self.TabList.UIListLayout.AbsoluteContentSize.Y + 10)
+        
+        -- Section creator
+        function tab:CreateSection(options)
+            options = options or {}
+            local sectionName = options.Name or "Section"
+            
+            -- Create section frame
+            local section = Utility:Create("Frame", {
+                Name = sectionName .. "Section",
+                BackgroundColor3 = LunarUI.Theme.Secondary,
+                BorderSizePixel = 0,
+                Size = UDim2.new(1, 0, 0, 40), -- Initial size, will be updated
+                Parent = tabContent
+            })
+            
+            Utility:Create("UICorner", {
+                CornerRadius = UDim.new(0, 8),
+                Parent = section
+            })
+            
+            local sectionTitle = Utility:Create("TextLabel", {
+                Name = "Title",
+                BackgroundTransparency = 1,
+                Position = UDim2.new(0, 12, 0, 8),
+                Size = UDim2.new(1, -20, 0, 20),
+                Font = Enum.Font.GothamBold,
+                Text = sectionName,
+                TextColor3 = LunarUI.Theme.Text,
+                TextSize = 14,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                Parent = section
+            })
+            
+            local sectionContent = Utility:Create("Frame", {
+                Name = "Content",
+                BackgroundTransparency = 1,
+                Position = UDim2.new(0, 0, 0, 36),
+                Size = UDim2.new(1, 0, 0, 0), -- Will be updated as elements are added
+                Parent = section
+            })
+            
+            Utility:Create("UIListLayout", {
+                Padding = UDim.new(0, 8),
+                HorizontalAlignment = Enum.HorizontalAlignment.Center,
+                SortOrder = Enum.SortOrder.LayoutOrder,
+                Parent = sectionContent
+            })
+            
+            Utility:Create("UIPadding", {
+                PaddingTop = UDim.new(0, 5),
+                PaddingBottom = UDim.new(0, 10),
+                PaddingLeft = UDim.new(0, 10),
+                PaddingRight = UDim.new(0, 10),
+                Parent = sectionContent
+            })
+            
+            -- Section object
+            local sectionObj = {
+                Frame = section,
+                Content = sectionContent,
+                Name = sectionName,
+                Elements = {}
+            }
+            
+            -- Function to update section size
+            local function updateSectionSize()
+                sectionContent.Size = UDim2.new(1, 0, 0, sectionContent.UIListLayout.AbsoluteContentSize.Y + 10)
+                section.Size = UDim2.new(1, 0, 0, sectionContent.Size.Y.Offset + 45)
+                tabContent.CanvasSize = UDim2.new(0, 0, 0, tabContent.UIListLayout.AbsoluteContentSize.Y + 20)
+            end
+            
+            -- Button creator
+            function sectionObj:AddButton(options)
+                options = options or {}
+                local buttonText = options.Text or "Button"
+                local callback = options.Callback or function() end
+                
+                local button = Utility:Create("TextButton", {
+                    Name = buttonText .. "Button",
+                    BackgroundColor3 = LunarUI.Theme.Primary,
+                    BorderSizePixel = 0,
+                    Size = UDim2.new(1, 0, 0, 34),
+                    Font = Enum.Font.Gotham,
+                    Text = "",
+                    TextColor3 = LunarUI.Theme.Text,
+                    TextSize = 14,
+                    ClipsDescendants = true,
+                    AutoButtonColor = false,
+                    Parent = sectionContent
+                })
+                
+                Utility:Create("UICorner", {
+                    CornerRadius = UDim.new(0, 6),
+                    Parent = button
+                })
+                
+                local buttonLabel = Utility:Create("TextLabel", {
+                    Name = "Label",
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 12, 0, 0),
+                    Size = UDim2.new(1, -12, 1, 0),
+                    Font = Enum.Font.Gotham,
+                    Text = buttonText,
+                    TextColor3 = LunarUI.Theme.Text,
+                    TextSize = 14,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    Parent = button
+                })
+                
+                button.MouseButton1Click:Connect(function()
+                    Utility:Ripple(button, LunarUI.Theme.Accent)
+                    callback()
+                end)
+                
+                button.MouseEnter:Connect(function()
+                    Utility:Tween(button, {BackgroundColor3 = Utility:LightenColor(LunarUI.Theme.Primary, 0.05)}, 0.2)
+                end)
+                
+                button.MouseLeave:Connect(function()
+                    Utility:Tween(button, {BackgroundColor3 = LunarUI.Theme.Primary}, 0.2)
+                end)
+                
+                updateSectionSize()
+                return button
+            end
+            
+            -- Toggle creator
+            function sectionObj:AddToggle(options)
+                options = options or {}
+                local toggleText = options.Text or "Toggle"
+                local default = options.Default or false
+                local flag = options.Flag or (toggleText .. "Toggle")
+                local callback = options.Callback or function() end
+                
+                -- Add to flags
+                LunarUI.Flags[flag] = default
+                
+                local toggle = Utility:Create("TextButton", {
+                    Name = toggleText .. "Toggle",
+                    BackgroundColor3 = LunarUI.Theme.Primary,
+                    BorderSizePixel = 0,
+                    Size = UDim2.new(1, 0, 0, 34),
+                    Font = Enum.Font.Gotham,
+                    Text = "",
+                    TextColor3 = LunarUI.Theme.Text,
+                    TextSize = 14,
+                    AutoButtonColor = false,
+                    Parent = sectionContent
+                })
+                
+                Utility:Create("UICorner", {
+                    CornerRadius = UDim.new(0, 6),
+                    Parent = toggle
+                })
+                
+                local toggleLabel = Utility:Create("TextLabel", {
+                    Name = "Label",
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 12, 0, 0),
+                    Size = UDim2.new(1, -52, 1, 0),
+                    Font = Enum.Font.Gotham,
+                    Text = toggleText,
+                    TextColor3 = LunarUI.Theme.Text,
+                    TextSize = 14,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    Parent = toggle
+                })
+                
+                local toggleBackground = Utility:Create("Frame", {
+                    Name = "Background",
+                    BackgroundColor3 = default and LunarUI.Theme.Accent or LunarUI.Theme.Border,
+                    BorderSizePixel = 0,
+                    Position = UDim2.new(1, -40, 0.5, -8),
+                    Size = UDim2.new(0, 30, 0, 16),
+                    Parent = toggle
+                })
+                
+                Utility:Create("UICorner", {
+                    CornerRadius = UDim.new(1, 0),
+                    Parent = toggleBackground
+                })
+                
+                local toggleIndicator = Utility:Create("Frame", {
+                    Name = "Indicator",
+                    BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+                    BorderSizePixel = 0,
+                    Position = UDim2.new(0, default and 14 or 2, 0.5, -6),
+                    Size = UDim2.new(0, 12, 0, 12),
+                    Parent = toggleBackground
+                })
+                
+                Utility:Create("UICorner", {
+                    CornerRadius = UDim.new(1, 0),
+                    Parent = toggleIndicator
+                })
+                
+                local toggled = default
+                
+                local function updateToggle()
+                    toggled = not toggled
+                    LunarUI.Flags[flag] = toggled
+                    
+                    if toggled then
+                        Utility:Tween(toggleBackground, {BackgroundColor3 = LunarUI.Theme.Accent}, 0.2)
+                        Utility:Tween(toggleIndicator, {Position = UDim2.new(0, 14, 0.5, -6)}, 0.2)
+                    else
+                        Utility:Tween(toggleBackground, {BackgroundColor3 = LunarUI.Theme.Border}, 0.2)
+                        Utility:Tween(toggleIndicator, {Position = UDim2.new(0, 2, 0.5, -6)}, 0.2)
+                    end
+                    
+                    callback(toggled)
+                end
+                
+                toggle.MouseButton1Click:Connect(function()
+                    updateToggle()
+                end)
+                
+                toggle.MouseEnter:Connect(function()
+                    Utility:Tween(toggle, {BackgroundColor3 = Utility:LightenColor(LunarUI.Theme.Primary, 0.05)}, 0.2)
+                end)
+                
+                toggle.MouseLeave:Connect(function()
+                    Utility:Tween(toggle, {BackgroundColor3 = LunarUI.Theme.Primary}, 0.2)
+                end)
+                
+                -- Toggle object
+                local toggleObj = {
+                    Instance = toggle,
+                    Background = toggleBackground,
+                    Indicator = toggleIndicator,
+                    Value = toggled,
+                    Flag = flag
+                }
+                
+                -- Set function
+                function toggleObj:Set(value)
+                    if value ~= toggled then
+                        updateToggle()
+                    end
+                end
+                
+                updateSectionSize()
+                return toggleObj
+            end
+            
+            -- Slider creator
+            function sectionObj:AddSlider(options)
+                options = options or {}
+                local sliderText = options.Text or "Slider"
+                local min = options.Min or 0
+                local max = options.Max or 100
+                local default = math.clamp(options.Default or min, min, max)
+                local increment = options.Increment or 1
+                local suffix = options.Suffix or ""
+                local flag = options.Flag or (sliderText .. "Slider")
+                local callback = options.Callback or function() end
+                
+                -- Add to flags
+                LunarUI.Flags[flag] = default
+                
+                local slider = Utility:Create("Frame", {
+                    Name = sliderText .. "Slider",
+                    BackgroundColor3 = LunarUI.Theme.Primary,
+                    BorderSizePixel = 0,
+                    Size = UDim2.new(1, 0, 0, 50),
+                    Parent = sectionContent
+                })
+                
+                Utility:Create("UICorner", {
+                    CornerRadius = UDim.new(0, 6),
+                    Parent = slider
+                })
+                
+                local sliderLabel = Utility:Create("TextLabel", {
+                    Name = "Label",
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 12, 0, 5),
+                    Size = UDim2.new(1, -24, 0, 20),
+                    Font = Enum.Font.Gotham,
+                    Text = sliderText,
+                    TextColor3 = LunarUI.Theme.Text,
+                    TextSize = 14,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    Parent = slider
+                })
+                
+                local sliderValueDisplay = Utility:Create("TextLabel", {
+                    Name = "Value",
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(1, -50, 0, 5),
+                    Size = UDim2.new(0, 40, 0, 20),
+                    Font = Enum.Font.Gotham,
+                    Text = tostring(default) .. suffix,
+                    TextColor3 = LunarUI.Theme.Accent,
+                    TextSize = 14,
+                    TextXAlignment = Enum.TextXAlignment.Right,
+                    Parent = slider
+                })
+                
+                local sliderBackground = Utility:Create("Frame", {
+                    Name = "Background",
+                    BackgroundColor3 = LunarUI.Theme.Border,
+                    BorderSizePixel = 0,
+                    Position = UDim2.new(0, 12, 0, 32),
+                    Size = UDim2.new(1, -24, 0, 4),
+                    Parent = slider
+                })
+                
+                Utility:Create("UICorner", {
+                    CornerRadius = UDim.new(1, 0),
+                    Parent = sliderBackground
+                })
+                
+                local sliderFill = Utility:Create("Frame", {
+                    Name = "Fill",
+                    BackgroundColor3 = LunarUI.Theme.Accent,
+                    BorderSizePixel = 0,
+                    Size = UDim2.new((default - min) / (max - min), 0, 1, 0),
+                    Parent = sliderBackground
+                })
+                
+                Utility:Create("UICorner", {
+                    CornerRadius = UDim.new(1, 0),
+                    Parent = sliderFill
+                })
+                
+                local sliderIndicator = Utility:Create("Frame", {
+                    Name = "Indicator",
+                    AnchorPoint = Vector2.new(0.5, 0.5),
+                    BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+                    BorderSizePixel = 0,
+                    Position = UDim2.new((default - min) / (max - min), 0, 0.5, 0),
+                    Size = UDim2.new(0, 12, 0, 12),
+                    ZIndex = 3,
+                    Parent = sliderBackground
+                })
+                
+                Utility:Create("UICorner", {
+                    CornerRadius = UDim.new(1, 0),
+                    Parent = sliderIndicator
+                })
+                
+                local value = default
+                
+                local function updateSlider(newValue)
+                    value = math.clamp(newValue, min, max)
+                    value = math.floor(value / increment + 0.5) * increment
+                    value = tonumber(string.format("%.2f", value)) -- Two decimal precision
+                    
+                    LunarUI.Flags[flag] = value
+                    
+                    local percent = (value - min) / (max - min)
+                    
+                    Utility:Tween(sliderFill, {Size = UDim2.new(percent, 0, 1, 0)}, 0.1)
+                    Utility:Tween(sliderIndicator, {Position = UDim2.new(percent, 0, 0.5, 0)}, 0.1)
+                    
+                    sliderValueDisplay.Text = tostring(value) .. suffix
+                    callback(value)
+                end
+                
+                local dragging = false
+                
+                sliderBackground.InputBegan:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                        dragging = true
+                        
+                        local relX = math.clamp(input.Position.X - sliderBackground.AbsolutePosition.X, 0, sliderBackground.AbsoluteSize.X)
+                        local percent = relX / sliderBackground.AbsoluteSize.X
+                        
+                        updateSlider(min + (max - min) * percent)
+                    end
+                end)
+                
+                UserInputService.InputEnded:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                        dragging = false
+                    end
+                end)
+                
+                UserInputService.InputChanged:Connect(function(input)
+                    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+                        local relX = math.clamp(input.Position.X - sliderBackground.AbsolutePosition.X, 0, sliderBackground.AbsoluteSize.X)
+                        local percent = relX / sliderBackground.AbsoluteSize.X
+                        
+                        updateSlider(min + (max - min) * percent)
+                    end
+                end)
+                
+                -- Slider object
+                local sliderObj = {
+                    Instance = slider,
+                    Background = sliderBackground,
+                    Fill = sliderFill,
+                    Indicator = sliderIndicator,
+                    Value = value,
+                    Flag = flag
+                }
+                
+                -- Set function
+                function sliderObj:Set(newValue)
+                    updateSlider(newValue)
+                end
+                
+                updateSectionSize()
+                return sliderObj
+            end
+            
+            -- Dropdown creator
+            function sectionObj:AddDropdown(options)
+                options = options or {}
+                local dropdownText = options.Text or "Dropdown"
+                local items = options.Items or {}
+                local default = options.Default or nil
+                local callback = options.Callback or function() end
+                local flag = options.Flag or (dropdownText .. "Dropdown")
+                local multiselect = options.MultiSelect or false
+                
+                -- Default value handling
+                local selected = {}
+                if default then
+                    if multiselect then
+                        if type(default) == "table" then
+                            for _, item in pairs(default) do
+                                if table.find(items, item) then
+                                    selected[item] = true
+                                end
+                            end
+                        elseif table.find(items, default) then
+                            selected[default] = true
+                        end
+                    elseif table.find(items, default) then
+                        selected = {[default] = true}
+                    end
+                end
+                
+                -- Add to flags
+                LunarUI.Flags[flag] = multiselect and selected or (next(selected) and next(selected) or nil)
+                
+                local dropdownHeight = 34
+                local contentHeight = 0
+                
+                local dropdown = Utility:Create("Frame", {
+                    Name = dropdownText .. "Dropdown",
+                    BackgroundColor3 = LunarUI.Theme.Primary,
+                    BorderSizePixel = 0,
+                    ClipsDescendants = true,
+                    Size = UDim2.new(1, 0, 0, dropdownHeight),
+                    ZIndex = 2,
+                    Parent = sectionContent
+                })
+                
+                Utility:Create("UICorner", {
+                    CornerRadius = UDim.new(0, 6),
+                    Parent = dropdown
+                })
+                
+                local dropdownButton = Utility:Create("TextButton", {
+                    Name = "Button",
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, dropdownHeight),
+                    Font = Enum.Font.Gotham,
+                    Text = "",
+                    TextColor3 = LunarUI.Theme.Text,
+                    TextSize = 14,
+                    ZIndex = 2,
+                    Parent = dropdown
+                })
+                
+                local dropdownLabel = Utility:Create("TextLabel", {
+                    Name = "Label",
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 12, 0, 0),
+                    Size = UDim2.new(1, -40, 1, 0),
+                    Font = Enum.Font.Gotham,
+                    Text = dropdownText,
+                    TextColor3 = LunarUI.Theme.Text,
+                    TextSize = 14,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    ZIndex = 2,
+                    Parent = dropdownButton
+                })
+                
+                local dropdownIndicator = Utility:Create("ImageLabel", {
+                    Name = "Indicator",
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(1, -30, 0.5, -8),
+                    Size = UDim2.new(0, 16, 0, 16),
+                    Image = "rbxassetid://6031094670", -- Arrow down
+                    ImageColor3 = LunarUI.Theme.Text,
+                    Rotation = 0,
+                    ZIndex = 2,
+                    Parent = dropdownButton
+                })
+                
+                local dropdownContent = Utility:Create("Frame", {
+                    Name = "Content",
+                    BackgroundColor3 = LunarUI.Theme.Primary,
+                    BackgroundTransparency = 0,
+                    BorderSizePixel = 0,
+                    Position = UDim2.new(0, 0, 0, dropdownHeight),
+                    Size = UDim2.new(1, 0, 0, 0), -- Will be updated as items are added
+                    Visible = false,
+                    ZIndex = 3,
+                    Parent = dropdown
+                })
+                
+                Utility:Create("UICorner", {
+                    CornerRadius = UDim.new(0, 6),
+                    Parent = dropdownContent
+                })
+                
+                Utility:Create("UIPadding", {
+                    PaddingTop = UDim.new(0, 5),
+                    PaddingBottom = UDim.new(0, 5),
+                    Parent = dropdownContent
+                })
+                
+                local itemList = Utility:Create("ScrollingFrame", {
+                    Name = "ItemList",
+                    BackgroundTransparency = 1,
+                    BorderSizePixel = 0,
+                    Size = UDim2.new(1, 0, 1, 0),
+                    CanvasSize = UDim2.new(0, 0, 0, 0), -- Will be updated as items are added
+                    ScrollBarThickness = 3,
+                    ScrollBarImageColor3 = LunarUI.Theme.Accent,
+                    ZIndex = 3,
+                    Parent = dropdownContent
+                })
+                
+                Utility:Create("UIListLayout", {
+                    Padding = UDim.new(0, 5),
+                    HorizontalAlignment = Enum.HorizontalAlignment.Center,
+                    SortOrder = Enum.SortOrder.LayoutOrder,
+                    Parent = itemList
+                })
+                
+                Utility:Create("UIPadding", {
+                    PaddingLeft = UDim.new(0, 5),
+                    PaddingRight = UDim.new(0, 5),
+                    Parent = itemList
+                })
+                
+                -- Function to update the display
+                local function updateDisplay()
+                    local displayText = ""
+                    if multiselect then
+                        local selectCount = 0
+                        for item, _ in pairs(selected) do
+                            selectCount = selectCount + 1
+                            if selectCount == 1 then
+                                displayText = item
+                            end
+                        end
+                        
+                        if selectCount > 1 then
+                            displayText = displayText .. " (+" .. (selectCount - 1) .. " more)"
+                        end
+                    else
+                        for item, _ in pairs(selected) do
+                            displayText = item
+                            break
+                        end
+                    end
+                    
+                    dropdownLabel.Text = displayText ~= "" and (dropdownText .. ": " .. displayText) or dropdownText
+                end
+                
+                -- Add items to the dropdown
+                for i, item in ipairs(items) do
+                    local itemButton = Utility:Create("TextButton", {
+                        Name = item .. "Item",
+                        BackgroundColor3 = selected[item] and LunarUI.Theme.Accent or LunarUI.Theme.Secondary,
+                        BorderSizePixel = 0,
+                        Size = UDim2.new(1, 0, 0, 28),
+                        Font = Enum.Font.Gotham,
+                        Text = "",
+                        TextColor3 = LunarUI.Theme.Text,
+                        TextSize = 14,
+                        ZIndex = 3,
+                        Parent = itemList
+                    })
+                    
+                    Utility:Create("UICorner", {
+                        CornerRadius = UDim.new(0, 6),
+                        Parent = itemButton
+                    })
+                    
+                    local itemLabel = Utility:Create("TextLabel", {
+                        Name = "Label",
+                        BackgroundTransparency = 1,
+                        Position = UDim2.new(0, 10, 0, 0),
+                        Size = UDim2.new(1, -10, 1, 0),
+                        Font = Enum.Font.Gotham,
+                        Text = item,
+                        TextColor3 = LunarUI.Theme.Text,
+                        TextSize = 14,
+                        TextXAlignment = Enum.TextXAlignment.Left,
+                        ZIndex = 3,
+                        Parent = itemButton
+                    })
+                    
+                    if multiselect then
+                        local toggle = Utility:Create("Frame", {
+                            Name = "Toggle",
+                            BackgroundColor3 = selected[item] and LunarUI.Theme.Accent or LunarUI.Theme.Border,
+                            BorderSizePixel = 0,
+                            Position = UDim2.new(1, -26, 0.5, -7),
+                            Size = UDim2.new(0, 14, 0, 14),
+                            ZIndex = 3,
+                            Parent = itemButton
+                        })
+                        
+                        Utility:Create("UICorner", {
+                            CornerRadius = UDim.new(0, 4),
+                            Parent = toggle
+                        })
+                        
+                        if selected[item] then
+                            Utility:Create("ImageLabel", {
+                                Name = "Check",
+                                BackgroundTransparency = 1,
+                                Size = UDim2.new(1, 0, 1, 0),
+                                Image = "rbxassetid://6031094667", -- Check mark
+                                ImageColor3 = Color3.fromRGB(255, 255, 255),
+                                ZIndex = 3,
+                                Parent = toggle
+                            })
+                        end
+                    end
+                    
+                    contentHeight = contentHeight + 33 -- 28 + 5 padding
+                    
+                    itemButton.MouseButton1Click:Connect(function()
+                        if multiselect then
+                            -- Toggle selection for multiselect
+                            selected[item] = not selected[item]
+                            
+                            itemButton.BackgroundColor3 = selected[item] and LunarUI.Theme.Accent or LunarUI.Theme.Secondary
+                            
+                            local check = itemButton.Toggle:FindFirstChild("Check")
+                            if selected[item] and not check then
+                                Utility:Create("ImageLabel", {
+                                    Name = "Check",
+                                    BackgroundTransparency = 1,
+                                    Size = UDim2.new(1, 0, 1, 0),
+                                    Image = "rbxassetid://6031094667", -- Check mark
+                                    ImageColor3 = Color3.fromRGB(255, 255, 255),
+                                    ZIndex = 3,
+                                    Parent = itemButton.Toggle
+                                })
+                            elseif not selected[item] and check then
+                                check:Destroy()
+                            end
+                            
+                            LunarUI.Flags[flag] = selected
+                            callback(selected)
+                        else
+                            -- Single selection
+                            for otherItem, _ in pairs(selected) do
+                                selected[otherItem] = false
+                            end
+                            selected[item] = true
+                            
+                            -- Update visuals for all items
+                            for _, child in ipairs(itemList:GetChildren()) do
+                                if child:IsA("TextButton") then
+                                    child.BackgroundColor3 = child.Name == item .. "Item" and LunarUI.Theme.Accent or LunarUI.Theme.Secondary
+                                end
+                            end
+                            
+                            LunarUI.Flags[flag] = item
+                            callback(item)
+                            
+                            -- Close dropdown for single selection
+                            Utility:Tween(dropdownIndicator, {Rotation = 0}, 0.2)
+                            Utility:Tween(dropdown, {Size = UDim2.new(1, 0, 0, dropdownHeight)}, 0.2)
+                            
+                            dropdownContent.Visible = false
+                            dropdownOpen = false
+                        end
+                        
+                        updateDisplay()
+                    end)
+                    
+                    itemButton.MouseEnter:Connect(function()
+                        if not (multiselect and selected[item]) and itemButton.BackgroundColor3 ~= LunarUI.Theme.Accent then
+                            Utility:Tween(itemButton, {BackgroundColor3 = Utility:LightenColor(LunarUI.Theme.Secondary, 0.05)}, 0.2)
+                        end
+                    end)
+                    
+                    itemButton.MouseLeave:Connect(function()
+                        if not (multiselect and selected[item]) and itemButton.BackgroundColor3 ~= LunarUI.Theme.Accent then
+                            Utility:Tween(itemButton, {BackgroundColor3 = LunarUI.Theme.Secondary}, 0.2)
+                        end
+                    end)
+                end
+                
+                updateDisplay()
+                
+                -- Set content size
+                itemList.CanvasSize = UDim2.new(0, 0, 0, contentHeight)
+                dropdownContent.Size = UDim2.new(1, 0, 0, math.min(contentHeight + 10, 150))
+                
+                local dropdownOpen = false
+                
+                dropdownButton.MouseButton1Click:Connect(function()
+                    dropdownOpen = not dropdownOpen
+                    
+                    local targetSize = UDim2.new(1, 0, 0, dropdownOpen and (dropdownHeight + dropdownContent.Size.Y.Offset) or dropdownHeight)
+                    local targetRotation = dropdownOpen and 180 or 0
+                    
+                    Utility:Tween(dropdownIndicator, {Rotation = targetRotation}, 0.2)
+                    Utility:Tween(dropdown, {Size = targetSize}, 0.2)
+                    
+                    dropdownContent.Visible = dropdownOpen
+                end)
+                
+                -- Close dropdown when clicking outside
+                UserInputService.InputBegan:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                        local mousePos = UserInputService:GetMouseLocation()
+                        if dropdownOpen and not (mousePos.X >= dropdown.AbsolutePosition.X and
+                                mousePos.X <= dropdown.AbsolutePosition.X + dropdown.AbsoluteSize.X and
+                                mousePos.Y >= dropdown.AbsolutePosition.Y and
+                                mousePos.Y <= dropdown.AbsolutePosition.Y + dropdown.AbsoluteSize.Y) then
+                            
+                            dropdownOpen = false
+                            Utility:Tween(dropdownIndicator, {Rotation = 0}, 0.2)
+                            Utility:Tween(dropdown, {Size = UDim2.new(1, 0, 0, dropdownHeight)}, 0.2)
+                            dropdownContent.Visible = false
+                        end
+                    end
+                end)
+                
+                -- Dropdown object
+                local dropdownObj = {
+                    Instance = dropdown,
+                    Items = items,
+                    Selected = selected,
+                    Flag = flag
+                }
+                
+                -- Add function
+                function dropdownObj:Add(item)
+                    if not table.find(self.Items, item) then
+                        table.insert(self.Items, item)
+                        
+                        -- Need to recreate all items to update the dropdown
+                        for _, child in ipairs(itemList:GetChildren()) do
+                            if child:IsA("TextButton") then
+                                child:Destroy()
+                            end
+                        end
+                        
+                        contentHeight = 0
+                        
+                        for _, newItem in ipairs(self.Items) do
+                            -- Re-add all items (same code as above)
+                            -- This could be refactored to a helper function
+                            -- (code omitted for brevity)
+                        end
+                        
+                        itemList.CanvasSize = UDim2.new(0, 0, 0, contentHeight)
+                        dropdownContent.Size = UDim2.new(1, 0, 0, math.min(contentHeight + 10, 150))
+                    end
+                end
+                
+                -- Remove function
+                function dropdownObj:Remove(item)
+                    local index = table.find(self.Items, item)
+                    if index then
+                        table.remove(self.Items, index)
+                        
+                        -- Remove from selected if it was selected
+                        if self.Selected[item] then
+                            self.Selected[item] = nil
+                            updateDisplay()
+                        end
+                        
+                        -- Need to recreate all items
+                        -- (same approach as Add method)
+                    end
+                end
+                
+                -- Set function
+                function dropdownObj:Set(value)
+                    if multiselect and typeof(value) == "table" then
+                        -- Clear current selections
+                        for item, _ in pairs(selected) do
+                            selected[item] = false
+                        end
+                        
+                        -- Set new selections
+                        for _, item in pairs(value) do
+                            if table.find(items, item) then
+                                selected[item] = true
+                            end
+                        end
+                    elseif table.find(items, value) then
+                        -- Clear current selection
+                        for item, _ in pairs(selected) do
+                            selected[item] = false
+                        end
+                        
+                        -- Set new selection
+                        selected[value] = true
+                    end
+                    
+                    -- Update visuals for all items
+                    for _, child in ipairs(itemList:GetChildren()) do
+                        if child:IsA("TextButton") then
+                            local itemName = string.gsub(child.Name, "Item$", "")
+                            child.BackgroundColor3 = selected[itemName] and LunarUI.Theme.Accent or LunarUI.Theme.Secondary
+                            
+                            if multiselect then
+                                local check = child.Toggle:FindFirstChild("Check")
+                                if selected[itemName] and not check then
+                                    Utility:Create("ImageLabel", {
+                                        Name = "Check",
+                                        BackgroundTransparency = 1,
+                                        Size = UDim2.new(1, 0, 1, 0),
+                                        Image = "rbxassetid://6031094667", -- Check mark
+                                        ImageColor3 = Color3.fromRGB(255, 255, 255),
+                                        ZIndex = 3,
+                                        Parent = child.Toggle
+                                    })
+                                elseif not selected[itemName] and check then
+                                    check:Destroy()
+                                end
+                            end
+                        end
+                    end
+                    
+                    updateDisplay()
+                    
+                    LunarUI.Flags[flag] = multiselect and selected or value
+                    callback(multiselect and selected or value)
+                end
+                
+                updateSectionSize()
+                return dropdownObj
+            end
+            
+            -- Input field
+            function sectionObj:AddTextbox(options)
+                options = options or {}
+                local textboxText = options.Text or "Textbox"
+                local default = options.Default or ""
+                local placeholder = options.Placeholder or "Enter text..."
+                local flag = options.Flag or (textboxText .. "Input")
+                local callback = options.Callback or function() end
+                
+                -- Add to flags
+                LunarUI.Flags[flag] = default
+                
+                local textbox = Utility:Create("Frame", {
+                    Name = textboxText .. "Textbox",
+                    BackgroundColor3 = LunarUI.Theme.Primary,
+                    BorderSizePixel = 0,
+                    Size = UDim2.new(1, 0, 0, 50),
+                    Parent = sectionContent
+                })
+                
+                Utility:Create("UICorner", {
+                    CornerRadius = UDim.new(0, 6),
+                    Parent = textbox
+                })
+                
+                local textboxLabel = Utility:Create("TextLabel", {
+                    Name = "Label",
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 12, 0, 5),
+                    Size = UDim2.new(1, -24, 0, 20),
+                    Font = Enum.Font.Gotham,
+                    Text = textboxText,
+                    TextColor3 = LunarUI.Theme.Text,
+                    TextSize = 14,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    Parent = textbox
+                })
+                
+                local textboxFrame = Utility:Create("Frame", {
+                    Name = "TextboxFrame",
+                    BackgroundColor3 = LunarUI.Theme.Secondary,
+                    BorderSizePixel = 0,
+                    Position = UDim2.new(0, 12, 0, 27),
+                    Size = UDim2.new(1, -24, 0, 16),
+                    Parent = textbox
+                })
+                
+                Utility:Create("UICorner", {
+                    CornerRadius = UDim.new(0, 4),
+                    Parent = textboxFrame
+                })
+                
+                local textInput = Utility:Create("TextBox", {
+                    Name = "Input",
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 10, 0, 0),
+                    Size = UDim2.new(1, -20, 1, 0),
+                    Font = Enum.Font.Gotham,
+                    PlaceholderText = placeholder,
+                    Text = default,
+                    TextColor3 = LunarUI.Theme.Text,
+                    PlaceholderColor3 = LunarUI.Theme.DarkText,
+                    TextSize = 12,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    ClearTextOnFocus = false,
+                    Parent = textboxFrame
+                })
+                
+                textInput.FocusLost:Connect(function(enterPressed)
+                    LunarUI.Flags[flag] = textInput.Text
+                    callback(textInput.Text, enterPressed)
+                end)
+                
+                -- Textbox object
+                local textboxObj = {
+                    Instance = textbox,
+                    Input = textInput,
+                    Flag = flag
+                }
+                
+                -- Set function
+                function textboxObj:Set(value)
+                    textInput.Text = value
+                    LunarUI.Flags[flag] = value
+                    callback(value, false)
+                end
+                
+                updateSectionSize()
+                return textboxObj
+            end
+            
+            -- Label creator
+            function sectionObj:AddLabel(options)
+                options = options or {}
+                local labelText = options.Text or "Label"
+                
+                local label = Utility:Create("TextLabel", {
+                    Name = "Label",
+                    BackgroundColor3 = LunarUI.Theme.Primary,
+                    BorderSizePixel = 0,
+                    Size = UDim2.new(1, 0, 0, 26),
+                    Font = Enum.Font.Gotham,
+                    Text = labelText,
+                    TextColor3 = LunarUI.Theme.Text,
+                    TextSize = 14,
+                    Parent = sectionContent
+                })
+                
+                Utility:Create("UICorner", {
+                    CornerRadius = UDim.new(0, 6),
+                    Parent = label
+                })
+                
+                -- Label object
+                local labelObj = {
+                    Instance = label
+                }
+                
+                -- Set function
+                function labelObj:Set(text)
+                    label.Text = text
+                end
+                
+                updateSectionSize()
+                return labelObj
+            end
+            
+            -- Add Section to Tab
+            self.Sections[sectionName] = sectionObj
+            tab.Elements[#tab.Elements + 1] = sectionObj
+            
+            updateSectionSize()
+            return sectionObj
+        end
+        
+        return tab
+    end
+    
+    -- Select Tab function
+    function window:SelectTab(name)
+        if self.Tabs[name] then
+            if self.ActiveTab then
+                local activeTab = self.Tabs[self.ActiveTab]
+                
+                -- Hide active tab content
+                Utility:Tween(activeTab.Content, {Position = UDim2.new(1, 0, 0, 0)}, 0.2)
+                task.delay(0.2, function()
+                    activeTab.Content.Visible = false
+                end)
+                
+                -- Reset tab button colors
+                Utility:Tween(activeTab.Button.Icon, {ImageColor3 = LunarUI.Theme.DarkText}, 0.2)
+                Utility:Tween(activeTab.Button.Label, {TextColor3 = LunarUI.Theme.DarkText}, 0.2)
+                Utility:Tween(activeTab.Button, {BackgroundColor3 = LunarUI.Theme.Secondary}, 0.2)
+            end
+            
+            -- Update active tab
+            self.ActiveTab = name
+            local tab = self.Tabs[name]
+            
+            -- Show tab content
+            tab.Content.Position = UDim2.new(-1, 0, 0, 0)
+            tab.Content.Visible = true
+            Utility:Tween(tab.Content, {Position = UDim2.new(0, 0, 0, 0)}, 0.2)
+            
+            -- Update tab button colors
+            Utility:Tween(tab.Button.Icon, {ImageColor3 = LunarUI.Theme.Accent}, 0.2)
+            Utility:Tween(tab.Button.Label, {TextColor3 = LunarUI.Theme.Text}, 0.2)
+            Utility:Tween(tab.Button, {BackgroundColor3 = LunarUI.Theme.Primary}, 0.2)
+        end
+    end
+    
+    table.insert(self.Windows, window)
+    return window
+end
+
+-- Key System
+function LunarUI:CreateKeySystem(options)
+    options = options or {}
+    local title = options.Title or "Key System"
+    local subtitle = options.Subtitle or "Verification Required"
+    local note = options.Note or "Enter your key to access the application."
+    local validKeys = options.Keys or {}  -- Array of valid keys
+    local callback = options.Callback or function() end -- Function to call after key is verified
+    
+    -- If there are no keys, don't create a key system
+    if #validKeys == 0 then
+        callback(true)
+        return
+    end
+    
+    -- Create ScreenGui
+    local keyGui = Utility:Create("ScreenGui", {
+        Name = "LunarKeySystem",
+        Parent = game:GetService("RunService"):IsStudio() and game.Players.LocalPlayer:WaitForChild("PlayerGui") or game:GetService("CoreGui"),
+        ZIndexBehavior = Enum.ZIndexBehavior.Global,
+        ResetOnSpawn = false
+    })
+    
+    -- Blur effect
+    local blurBackground = Utility:Create("Frame", {
+        Name = "BlurBackground",
+        BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+        BackgroundTransparency = 0.5,
+        BorderSizePixel = 0,
+        Position = UDim2.new(0, 0, 0, 0),
+        Size = UDim2.new(1, 0, 1, 0),
+        ZIndex = 998,
+        Parent = keyGui
+    })
+    
+    -- Main key system frame
+    local keyFrame = Utility:Create("Frame", {
+        Name = "KeySystemFrame",
+        BackgroundColor3 = self.Theme.Primary,
+        BorderColor3 = self.Theme.Border,
+        BorderSizePixel = 1,
+        Position = UDim2.new(0.5, -175, 0.5, -125),
+        Size = UDim2.new(0, 350, 0, 250),
+        ZIndex = 999,
+        Parent = keyGui,
+        ClipsDescendants = true
+    })
+    
+    Utility:Create("UICorner", {
+        CornerRadius = UDim.new(0, 8),
+        Parent = keyFrame
+    })
+    
+    -- Topbar
+    local topbar = Utility:Create("Frame", {
+        Name = "Topbar",
+        BackgroundColor3 = self.Theme.Secondary,
+        BorderSizePixel = 0,
+        Size = UDim2.new(1, 0, 0, 40),
+        ZIndex = 999,
+        Parent = keyFrame
+    })
+    
+    Utility:Create("UICorner", {
+        CornerRadius = UDim.new(0, 8),
+        Parent = topbar
+    })
+    
+    -- Only round the top corners
+    Utility:Create("Frame", {
+        BackgroundColor3 = self.Theme.Secondary,
+        BorderSizePixel = 0,
+        Position = UDim2.new(0, 0, 0.5, 0),
+        Size = UDim2.new(1, 0, 0.5, 0),
+        ZIndex = 999,
+        Parent = topbar
+    })
+    
+    -- Title and subtitle
+    local titleLabel = Utility:Create("TextLabel", {
+        Name = "Title",
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 15, 0, 5),
+        Size = UDim2.new(1, -30, 0, 16),
+        Font = Enum.Font.GothamBold,
+        Text = title,
+        TextColor3 = self.Theme.Text,
+        TextSize = 16,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 999,
+        Parent = topbar
+    })
+    
+    local subtitleLabel = Utility:Create("TextLabel", {
+        Name = "Subtitle",
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 15, 0, 22),
+        Size = UDim2.new(1, -30, 0, 14),
+        Font = Enum.Font.Gotham,
+        Text = subtitle,
+        TextColor3 = self.Theme.DarkText,
+        TextSize = 14,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 999,
+        Parent = topbar
+    })
+    
+    -- Note
+    local noteLabel = Utility:Create("TextLabel", {
+        Name = "Note",
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 20, 0, 60),
+        Size = UDim2.new(1, -40, 0, 40),
+        Font = Enum.Font.Gotham,
+        Text = note,
+        TextColor3 = self.Theme.Text,
+        TextSize = 14,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        ZIndex = 999,
+        Parent = keyFrame
+    })
+    
+    -- Key input
+    local keyBox = Utility:Create("TextBox", {
+        Name = "KeyInput",
+        BackgroundColor3 = self.Theme.Secondary,
+        BorderSizePixel = 0,
+        Position = UDim2.new(0.5, -125, 0, 120),
+        Size = UDim2.new(0, 250, 0, 40),
+        Font = Enum.Font.Gotham,
+        PlaceholderText = "Enter Key...",
+        Text = "",
+        TextColor3 = self.Theme.Text,
+        TextSize = 14,
+        ClearTextOnFocus = false,
+        ZIndex = 999,
+        Parent = keyFrame
+    })
+    
+    Utility:Create("UICorner", {
+        CornerRadius = UDim.new(0, 6),
+        Parent = keyBox
+    })
+    
+    -- Status label
+    local statusLabel = Utility:Create("TextLabel", {
+        Name = "Status",
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 20, 0, 170),
+        Size = UDim2.new(1, -40, 0, 20),
+        Font = Enum.Font.Gotham,
+        Text = "",
+        TextColor3 = self.Theme.Negative,
+        TextSize = 14,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        ZIndex = 999,
+        Visible = false,
+        Parent = keyFrame
+    })
+    
+    -- Submit button
+    local submitButton = Utility:Create("TextButton", {
+        Name = "SubmitButton",
+        BackgroundColor3 = self.Theme.Accent,
+        BorderSizePixel = 0,
+        Position = UDim2.new(0.5, -75, 0, 200),
+        Size = UDim2.new(0, 150, 0, 35),
+        Font = Enum.Font.GothamBold,
+        Text = "SUBMIT",
+        TextColor3 = self.Theme.Text,
+        TextSize = 14,
+        AutoButtonColor = false,
+        ZIndex = 999,
+        Parent = keyFrame
+    })
+    
+    Utility:Create("UICorner", {
+        CornerRadius = UDim.new(0, 6),
+        Parent = submitButton
+    })
+    
+    submitButton.MouseEnter:Connect(function()
+        Utility:Tween(submitButton, {BackgroundColor3 = Utility:DarkenColor(self.Theme.Accent, 0.1)}, 0.2)
+    end)
+    
+    submitButton.MouseLeave:Connect(function()
+        Utility:Tween(submitButton, {BackgroundColor3 = self.Theme.Accent}, 0.2)
+    end)
+    
+    submitButton.MouseButton1Down:Connect(function()
+        Utility:Tween(submitButton, {BackgroundColor3 = Utility:DarkenColor(self.Theme.Accent, 0.2)}, 0.1)
+    end)
+    
+    submitButton.MouseButton1Up:Connect(function()
+        Utility:Tween(submitButton, {BackgroundColor3 = Utility:DarkenColor(self.Theme.Accent, 0.1)}, 0.1)
+    end)
+    
+    -- Key verification logic
+    local function verifyKey()
+        local enteredKey = keyBox.Text
+        
+        -- Check if the entered key is valid
+        for _, validKey in ipairs(validKeys) do
+            if enteredKey == validKey then
+                statusLabel.Text = "Key verified successfully!"
+                statusLabel.TextColor3 = self.Theme.Positive
+                statusLabel.Visible = true
+                
+                task.delay(1, function()
+                    -- Fade out and destroy key system
+                    Utility:Tween(keyFrame, {Position = UDim2.new(0.5, -175, 1.5, 0)}, 0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+                    Utility:Tween(blurBackground, {BackgroundTransparency = 1}, 0.5)
+                    
+                    task.delay(0.5, function()
+                        keyGui:Destroy()
+                        callback(true) -- Call the callback with success
+                    end)
+                end)
+                
+                return true
+            end
+        end
+        
+        -- If we get here, the key was invalid
+        statusLabel.Text = "Invalid key. Please try again."
+        statusLabel.TextColor3 = self.Theme.Negative
+        statusLabel.Visible = true
+        
+        Utility:Tween(keyFrame, {Position = UDim2.new(0.5, -170, 0.5, -125)}, 0.1)
+        task.delay(0.05, function()
+            Utility:Tween(keyFrame, {Position = UDim2.new(0.5, -180, 0.5, -125)}, 0.1)
+            task.delay(0.05, function()
+                Utility:Tween(keyFrame, {Position = UDim2.new(0.5, -175, 0.5, -125)}, 0.1)
+            end)
+        end)
+        
+        return false
+    end
+    
+    -- Connect events
+    submitButton.MouseButton1Click:Connect(verifyKey)
+    
+    keyBox.FocusLost:Connect(function(enterPressed)
+        if enterPressed then
+            verifyKey()
+        end
+    end)
+    
+    -- Make sure the key system is in front of everything
+    keyGui.DisplayOrder = 9999
+    
+    return keyGui
+end
+
+-- Initialize
+-- Improved initialization function with robust error handling
+function LunarUI:Init()
+    -- Initialize the player if not done already
+    if not LocalPlayer then
+        local initSuccess, initError = pcall(function()
+            if Players.LocalPlayer then
+                LocalPlayer = Players.LocalPlayer
+            else
+                local connection
+                connection = Players:GetPropertyChangedSignal("LocalPlayer"):Connect(function()
+                    if Players.LocalPlayer then
+                        LocalPlayer = Players.LocalPlayer
+                        connection:Disconnect()
+                    end
+                end)
+                
+                -- Wait for player with timeout
+                local startTime = tick()
+                while not LocalPlayer and tick() - startTime < 10 do
+                    wait(0.1)
+                end
+                
+                if not LocalPlayer then
+                    error("Failed to get LocalPlayer within timeout period")
+                end
+            end
+            
+            -- Initialize Mouse safely
+            Mouse = LocalPlayer:GetMouse()
+            
+            -- Determine where to parent UI elements (PlayerGui in Studio, CoreGui in published games)
+            UIParent = nil
+            if RunService:IsStudio() then
+                UIParent = LocalPlayer:FindFirstChild("PlayerGui")
+                if not UIParent then
+                    warn("LunarUI: PlayerGui not found, waiting...")
+                    UIParent = LocalPlayer:WaitForChild("PlayerGui", 5)
+                end
+            else
+                -- Try to use CoreGui, fall back to PlayerGui if needed
+                pcall(function()
+                    UIParent = game:GetService("CoreGui")
+                end)
+                
+                if not UIParent then
+                    warn("LunarUI: CoreGui access denied, using PlayerGui instead")
+                    UIParent = LocalPlayer:FindFirstChild("PlayerGui")
+                    if not UIParent then
+                        UIParent = LocalPlayer:WaitForChild("PlayerGui", 5)
+                    end
+                end
+            end
+            
+            if not UIParent then
+                error("LunarUI: Failed to find a suitable parent for UI elements")
+            end
+        end)
+        
+        if not initSuccess then
+            warn("LunarUI initialization error: " .. tostring(initError))
+            return self
+        end
+    end
+    
+    -- Set up key to toggle UI
+    UserInputService.InputBegan:Connect(function(input)
+        if input.KeyCode == Enum.KeyCode.RightShift then
+            self:ToggleUI()
+        end
+    end)
+    
+    -- Make sure the library is ready
+    self._initialized = true
+    
+    -- Return the library for chaining
+    return self
+end
+
+-- Create a key system for verification before showing UI
+function LunarUI:CreateKeySystem(options)
+    options = options or {}
+    local title = options.Title or "Key System"
+    local subtitle = options.Subtitle or "Verification Required"
+    local note = options.Note or "Please enter your key to continue"
+    local keys = options.Keys or {}
+    local callback = options.Callback or function() end
+    
+    -- Wait for player initialization
+    if not LocalPlayer then
+        self:Init()
+        if not self._initialized then
+            warn("LunarUI: Could not initialize for key system")
+            return
+        end
+    end
+    
+    -- Create key system UI
+    local gui = Utility:Create("ScreenGui", {
+        Name = "LunarUI_KeySystem",
+        Parent = UIParent or (RunService:IsStudio() and LocalPlayer:WaitForChild("PlayerGui") or game:GetService("CoreGui")),
+        ZIndexBehavior = Enum.ZIndexBehavior.Global,
+        ResetOnSpawn = false
+    })
+    
+    -- Main container
+    local main = Utility:Create("Frame", {
+        Name = "Main",
+        BackgroundColor3 = self.Theme.Primary,
+        BorderColor3 = self.Theme.Border,
+        BorderSizePixel = 1,
+        Position = UDim2.new(0.5, -175, 0.5, -100),
+        Size = UDim2.new(0, 350, 0, 200),
+        Parent = gui,
+        ClipsDescendants = true
+    })
+    
+    Utility:Create("UICorner", {
+        CornerRadius = UDim.new(0, 8),
+        Parent = main
+    })
+    
+    -- Dropshadow
+    Utility:Create("CanvasGroup", {
+        Name = "Shadow",
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.new(1, 24, 1, 24),
+        ZIndex = -1,
+        GroupTransparency = 0.5,
+        Parent = main
+    }, {
+        Utility:Create("ImageLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(-12, -12),
+            Size = UDim2.new(1, 24, 1, 24),
+            Image = "rbxassetid://6014261993",
+            ImageColor3 = Color3.fromRGB(0, 0, 0),
+            ImageTransparency = 0.5,
+            ScaleType = Enum.ScaleType.Slice,
+            SliceCenter = Rect.new(49, 49, 450, 450)
+        })
+    })
+    
+    -- Title and subtitle
+    local titleLabel = Utility:Create("TextLabel", {
+        Name = "Title",
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 15, 0, 15),
+        Size = UDim2.new(1, -30, 0, 20),
+        Font = Enum.Font.GothamBold,
+        Text = title,
+        TextColor3 = self.Theme.Text,
+        TextSize = 20,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        Parent = main
+    })
+    
+    local subtitleLabel = Utility:Create("TextLabel", {
+        Name = "Subtitle",
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 15, 0, 40),
+        Size = UDim2.new(1, -30, 0, 16),
+        Font = Enum.Font.Gotham,
+        Text = subtitle,
+        TextColor3 = self.Theme.DarkText,
+        TextSize = 16,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        Parent = main
+    })
+    
+    -- Note
+    local noteLabel = Utility:Create("TextLabel", {
+        Name = "Note",
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 15, 0, 70),
+        Size = UDim2.new(1, -30, 0, 16),
+        Font = Enum.Font.Gotham,
+        Text = note,
+        TextColor3 = self.Theme.Text,
+        TextSize = 14,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        Parent = main
+    })
+    
+    -- Textbox Background
+    local textboxBackground = Utility:Create("Frame", {
+        Name = "TextboxBackground",
+        BackgroundColor3 = self.Theme.Secondary,
+        Position = UDim2.new(0.5, -125, 0, 100),
+        Size = UDim2.new(0, 250, 0, 36),
+        Parent = main
+    })
+    
+    Utility:Create("UICorner", {
+        CornerRadius = UDim.new(0, 6),
+        Parent = textboxBackground
+    })
+    
+    -- Key input textbox
+    local textbox = Utility:Create("TextBox", {
+        Name = "KeyInput",
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 10, 0, 0),
+        Size = UDim2.new(1, -20, 1, 0),
+        Font = Enum.Font.Gotham,
+        PlaceholderText = "Enter key here...",
+        Text = "",
+        TextColor3 = self.Theme.Text,
+        TextSize = 16,
+        ClearTextOnFocus = false,
+        Parent = textboxBackground
+    })
+    
+    -- Submit button
+    local submitButton = Utility:Create("TextButton", {
+        Name = "SubmitButton",
+        BackgroundColor3 = self.Theme.Accent,
+        Position = UDim2.new(0.5, -75, 0, 150),
+        Size = UDim2.new(0, 150, 0, 36),
+        Font = Enum.Font.GothamBold,
+        Text = "Submit",
+        TextColor3 = self.Theme.Text,
+        TextSize = 16,
+        AutoButtonColor = false,
+        Parent = main
+    })
+    
+    Utility:Create("UICorner", {
+        CornerRadius = UDim.new(0, 6),
+        Parent = submitButton
+    })
+    
+    submitButton.MouseEnter:Connect(function()
+        Utility:Tween(submitButton, {BackgroundColor3 = Utility:LightenColor(self.Theme.Accent, 0.05)}, 0.2)
+    end)
+    
+    submitButton.MouseLeave:Connect(function()
+        Utility:Tween(submitButton, {BackgroundColor3 = self.Theme.Accent}, 0.2)
+    end)
+    
+    submitButton.MouseButton1Down:Connect(function()
+        Utility:Tween(submitButton, {BackgroundColor3 = Utility:DarkenColor(self.Theme.Accent, 0.05)}, 0.1)
+    end)
+    
+    submitButton.MouseButton1Up:Connect(function()
+        Utility:Tween(submitButton, {BackgroundColor3 = self.Theme.Accent}, 0.1)
+    end)
+    
+    local function validateKey()
+        local inputKey = textbox.Text
+        
+        for _, validKey in ipairs(keys) do
+            if inputKey == validKey then
+                -- Create success notification
+                self:CreateNotification({
+                    Title = "Success",
+                    Content = "Key verified successfully!",
+                    Duration = 3,
+                    Type = "Success"
+                })
+                
+                -- Animate out
+                Utility:Tween(main, {Position = UDim2.new(0.5, -175, 1.5, 0)}, 0.5, Enum.EasingStyle.Quint)
+                
+                -- Clean up
+                task.delay(0.5, function()
+                    gui:Destroy()
+                    callback(true)
+                end)
+                
+                return true
+            end
+        end
+        
+        -- Incorrect key
+        self:CreateNotification({
+            Title = "Error",
+            Content = "Invalid key. Please try again.",
+            Duration = 3,
+            Type = "Error"
+        })
+        
+        -- Shake animation
+        local originalPosition = main.Position
+        for i = 1, 5 do
+            Utility:Tween(main, {Position = UDim2.new(originalPosition.X.Scale, originalPosition.X.Offset + (i % 2 == 0 and 10 or -10), originalPosition.Y.Scale, originalPosition.Y.Offset)}, 0.1)
+            task.wait(0.1)
+        end
+        Utility:Tween(main, {Position = originalPosition}, 0.1)
+        
+        return false
+    end
+    
+    submitButton.MouseButton1Click:Connect(validateKey)
+    
+    -- Also validate when Enter is pressed
+    textbox.FocusLost:Connect(function(enterPressed)
+        if enterPressed then
+            validateKey()
+        end
+    end)
+    
+    -- Animate in
+    main.Position = UDim2.new(0.5, -175, -0.5, 0)
+    Utility:Tween(main, {Position = UDim2.new(0.5, -175, 0.5, -100)}, 0.5, Enum.EasingStyle.Quint)
+    
+    return gui
+end
+
+return LunarUI
